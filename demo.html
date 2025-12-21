@@ -377,11 +377,11 @@ void main() {
         float barWidth = 0.03 + sin(t * 0.5 + fi) * 0.01;
         
         float dist = abs(uv.y - barY);
-        float bar = smoothstep(barWidth, 0.0, dist);
+        float mask = 1.0 - smoothstep(0.0, barWidth, dist);
+        mask = clamp(mask, 0.0, 1.0);
         
         // Gradient within the bar (classic copper look)
-        float gradient = 1.0 - abs((uv.y - barY) / barWidth);
-        gradient = pow(gradient, 0.5);
+        float gradient = pow(mask, 0.55);
         
         // HSV color for rainbow effect
         float hue = fract(fi * 0.08 + t * 0.1);
@@ -389,9 +389,9 @@ void main() {
         
         // Add metallic sheen
         barCol *= gradient;
-        barCol += vec3(1.0) * pow(gradient, 4.0) * 0.5;
+        barCol += vec3(1.0) * pow(mask, 4.0) * 0.5;
         
-        col += barCol * bar;
+        col += barCol * mask;
     }
     
     // Scanlines
