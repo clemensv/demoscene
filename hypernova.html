@@ -157,6 +157,11 @@
     <div id="startScreen">
         <h1>HYPERNOVA OVERDRIVE</h1>
         <p>Click to initiate quantum rave</p>
+        <div id="qualitySelector">
+            <button type="button" data-quality="performance">Performance</button>
+            <button type="button" data-quality="ultra">Ultra</button>
+        </div>
+        <div class="hint" id="qualityHint">Auto-detected quality: <span id="qualityPresetLabel"></span></div>
         <p style="font-size:0.7rem; letter-spacing:0.3em; opacity:0.5;">Headphones + fullscreen recommended</p>
     </div>
     <canvas id="mainCanvas"></canvas>
@@ -172,6 +177,7 @@
             <span>FPS <span id="fps">0</span></span>
             <span>SCENE <span id="sceneLabel">01</span></span>
             <span>AUDIO <span id="audioState">STANDBY</span></span>
+            <span>QUALITY <span id="qualityLiveLabel">AUTO</span></span>
         </div>
     </div>
     <div id="timeline">
@@ -196,9 +202,13 @@ const hudStage = document.getElementById('stageTitle');
 const hudScene = document.getElementById('sceneLabel');
 const hudAudio = document.getElementById('audioState');
 const hudFps = document.getElementById('fps');
+const qualityLiveLabel = document.getElementById('qualityLiveLabel');
 const timelineBar = document.getElementById('timelineBar');
 const spectrogram = document.getElementById('spectrogram');
 const startScreen = document.getElementById('startScreen');
+const qualityPresetLabel = document.getElementById('qualityPresetLabel');
+const qualityHint = document.getElementById('qualityHint');
+const qualityButtons = Array.from(document.querySelectorAll('#qualitySelector button'));
 
 const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
 if (!gl) {
@@ -214,12 +224,71 @@ if (!colorFloat) {
 
 const supportLinear = gl.getExtension('OES_texture_float_linear');
 
+const QUALITY_PRESETS = {
+    performance: {
+        label: 'Performance',
+        resolutionScale: 0.65,
+        maxSteps: 90.0,
+        shadowSteps: 24.0,
+        volumeSteps: 8.0,
+        chromaScale: 0.006,
+        particlePointSize: 0.013,
+        particleUpdateInterval: 0.033
+    },
+    ultra: {
+        label: 'Ultra',
+        resolutionScale: 1.0,
+        maxSteps: 150.0,
+        shadowSteps: 40.0,
+        volumeSteps: 16.0,
+        chromaScale: 0.011,
+        particlePointSize: 0.008,
+        particleUpdateInterval: 0.0
+    }
+};
+
+const coreCount = navigator.hardwareConcurrency || 4;
+const deviceMemory = navigator.deviceMemory || 4;
+const isMobile = /Mobi|Android/i.test(navigator.userAgent || '');
+let selectedQualityName = (coreCount <= 6 || deviceMemory <= 6 || isMobile) ? 'performance' : 'ultra';
+let currentQuality = QUALITY_PRESETS[selectedQualityName];
+
+function updateQualityUI() {
+    qualityPresetLabel.textContent = currentQuality.label;
+    qualityLiveLabel.textContent = currentQuality.label.toUpperCase();
+    qualityButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.quality === selectedQualityName);
+    });
+}
+
+function setQuality(name, userInitiated = false) {
+    if (!QUALITY_PRESETS[name]) return;
+    selectedQualityName = name;
+    currentQuality = QUALITY_PRESETS[name];
+    updateQualityUI();
+    resize();
+    if (userInitiated) {
+        qualityHint.textContent = `Preset locked: ${currentQuality.label}`;
+    }
+}
+
+updateQualityUI();
+qualityHint.textContent = `Auto-detected quality: ${currentQuality.label}`;
+
+qualityButtons.forEach(btn => {
+    btn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        setQuality(btn.dataset.quality, true);
+    });
+});
+
 let width = window.innerWidth;
 let height = window.innerHeight;
 function resize() {
     const dpr = window.devicePixelRatio || 1;
-    width = Math.floor(window.innerWidth * dpr);
-    height = Math.floor(window.innerHeight * dpr);
+    const scale = currentQuality.resolutionScale || 1;
+    width = Math.floor(window.innerWidth * dpr * scale);
+    height = Math.floor(window.innerHeight * dpr * scale);
     canvas.width = width;
     canvas.height = height;
     canvas.style.width = '100vw';
@@ -293,6 +362,10 @@ uniform float u_phase;
 uniform float u_audioEnergy;
 uniform float u_subEnergy;
 uniform float u_sparkEnergy;
+uniform float u_maxSteps;
+uniform float u_shadowSteps;
+uniform float u_volumeSteps;
+uniform float u_chromaScale;
 
 #define MAX_STEPS 150
 #define MAX_DIST 150.0
@@ -417,6 +490,7 @@ float softShadow(vec3 ro, vec3 rd, float phase) {
     float res = 1.0;
     float t = 0.02;
     for (int i = 0; i < 40; i++) {
+        if (float(i) >= u_shadowSteps) break;
         vec3 pos = ro + rd * t;
         float h = map(pos, phase).dist;
         res = min(res, 10.0 * h / t);
@@ -439,6 +513,7 @@ vec3 shade(vec3 ro, vec3 rd, float phase) {
     float total = 0.0;
     float mat = 0.0;
     for (int i = 0; i < MAX_STEPS; i++) {
+        if (float(i) >= u_maxSteps) break;
         vec3 pos = ro + rd * dist;
         Result res = map(pos, phase);
         if (res.dist < EPS) {
@@ -479,6 +554,7 @@ vec3 shade(vec3 ro, vec3 rd, float phase) {
     float volumetric = 0.0;
     vec3 samplePos = pos;
     for (int i = 0; i < 16; i++) {
+        if (float(i) >= u_volumeSteps) break;
         samplePos += rd * 0.8;
         volumetric += max(0.0, 0.6 - map(samplePos, phase).dist) * 0.05;
     }
@@ -525,7 +601,7 @@ void main() {
     col = pow(col, vec3(0.95));
 
     // Chromatic aberration + glitch pulses
-    float glitch = sin(u_time * 12.0 + uv.y * 300.0) * 0.01 * u_sparkEnergy;
+    float glitch = sin(u_time * 12.0 + uv.y * 300.0) * u_chromaScale * u_sparkEnergy;
     col.r += glitch;
     col.b -= glitch;
 
@@ -794,7 +870,11 @@ const rayUniforms = {
     u_phase: gl.getUniformLocation(rayProgram, 'u_phase'),
     u_audioEnergy: gl.getUniformLocation(rayProgram, 'u_audioEnergy'),
     u_subEnergy: gl.getUniformLocation(rayProgram, 'u_subEnergy'),
-    u_sparkEnergy: gl.getUniformLocation(rayProgram, 'u_sparkEnergy')
+    u_sparkEnergy: gl.getUniformLocation(rayProgram, 'u_sparkEnergy'),
+    u_maxSteps: gl.getUniformLocation(rayProgram, 'u_maxSteps'),
+    u_shadowSteps: gl.getUniformLocation(rayProgram, 'u_shadowSteps'),
+    u_volumeSteps: gl.getUniformLocation(rayProgram, 'u_volumeSteps'),
+    u_chromaScale: gl.getUniformLocation(rayProgram, 'u_chromaScale')
 };
 
 const updateUniforms = {
@@ -1101,6 +1181,8 @@ let frameCounter = 0;
 let fpsAccumulator = 0;
 let cameraOffset = 0;
 
+let particleAccumulator = 0;
+
 let audioEnergy = 0;
 let subEnergy = 0;
 let sparkEnergy = 0;
@@ -1214,7 +1296,16 @@ function renderScene(timestamp) {
     const pointer = timelineBar.querySelector('span');
     pointer.style.left = `${barWidth}%`;
 
-    updateParticles(dt, t, phase);
+    const particleInterval = currentQuality.particleUpdateInterval || 0;
+    if (particleInterval <= 0) {
+        updateParticles(dt, t, phase);
+    } else {
+        particleAccumulator += dt;
+        if (particleAccumulator >= particleInterval) {
+            updateParticles(particleAccumulator, t, phase);
+            particleAccumulator = 0;
+        }
+    }
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, width, height);
@@ -1241,6 +1332,10 @@ function renderScene(timestamp) {
     gl.uniform1f(rayUniforms.u_audioEnergy, audioEnergy);
     gl.uniform1f(rayUniforms.u_subEnergy, subEnergy);
     gl.uniform1f(rayUniforms.u_sparkEnergy, sparkEnergy);
+    gl.uniform1f(rayUniforms.u_maxSteps, currentQuality.maxSteps);
+    gl.uniform1f(rayUniforms.u_shadowSteps, currentQuality.shadowSteps);
+    gl.uniform1f(rayUniforms.u_volumeSteps, currentQuality.volumeSteps);
+    gl.uniform1f(rayUniforms.u_chromaScale, currentQuality.chromaScale);
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
@@ -1263,7 +1358,9 @@ function renderScene(timestamp) {
     const viewProj = multiplyMatrices(projection, view);
 
     gl.uniformMatrix4fv(particleUniforms.u_viewProj, false, viewProj);
-    gl.uniform1f(particleUniforms.u_pointSize, Math.max(0.004, 0.008 - phase * 0.0008));
+    const basePoint = currentQuality.particlePointSize || 0.008;
+    const dynamicPoint = Math.max(0.0035, basePoint - phase * 0.0006);
+    gl.uniform1f(particleUniforms.u_pointSize, dynamicPoint);
     gl.uniform1f(particleUniforms.u_audioEnergy, audioEnergy);
     gl.uniform1f(particleUniforms.u_sparkEnergy, sparkEnergy);
     gl.uniform1f(particleUniforms.u_phase, phase);
