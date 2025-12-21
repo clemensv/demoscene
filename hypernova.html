@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HYPERNOVA OVERDRIVE - Immersive WebGL 2025 Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #02020a;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            color: #e0f7ff;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+        }
+        #uiLayer {
+            pointer-events: none;
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 30px 40px;
+            z-index: 10;
+        }
+        #hudTop {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            color: rgba(163, 250, 255, 0.8);
+        }
+        #hudBottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            font-size: 0.85rem;
+            letter-spacing: 0.25em;
+        }
+        #hudBottom span {
+            color: rgba(255, 255, 255, 0.85);
+        }
+        .glitch {
+            font-size: clamp(2rem, 6vw, 4.5rem);
+            font-weight: 700;
+            letter-spacing: 0.4em;
+            text-transform: uppercase;
+            mix-blend-mode: screen;
+            color: #fff;
+            text-shadow: 0px 0px 20px rgba(0, 255, 255, 0.8);
+            animation: glitch 2s infinite;
+        }
+        @keyframes glitch {
+            0% { transform: translate(0,0); filter: hue-rotate(0deg); }
+            25% { transform: translate(-4px,2px); }
+            50% { transform: translate(3px,-3px); filter: hue-rotate(90deg); }
+            75% { transform: translate(-2px,1px); }
+            100% { transform: translate(0,0); filter: hue-rotate(0deg); }
+        }
+        #startScreen {
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle at 50% 50%, rgba(40, 0, 70, 0.9), rgba(0, 0, 0, 0.98));
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            z-index: 20;
+            cursor: pointer;
+        }
+        #startScreen h1 {
+            font-size: clamp(2.5rem, 8vw, 6rem);
+            letter-spacing: 0.4em;
+            background: linear-gradient(90deg, #0ff, #f0f, #ff0, #0ff);
+            background-size: 400% 100%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: pulseGradient 4s linear infinite;
+            text-transform: uppercase;
+        }
+        @keyframes pulseGradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        #startScreen p {
+            color: rgba(255, 255, 255, 0.7);
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            animation: blink 1.2s ease-in-out infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        #spectrogram {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100vw;
+            height: 160px;
+            pointer-events: none;
+            mix-blend-mode: screen;
+            opacity: 0.7;
+            z-index: 9;
+        }
+        #timeline {
+            position: fixed;
+            top: 50%;
+            right: 60px;
+            transform: translateY(-50%);
+            width: 220px;
+            height: 260px;
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            backdrop-filter: blur(30px);
+            background: linear-gradient(180deg, rgba(0, 20, 40, 0.35), rgba(0, 0, 0, 0.65));
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            font-size: 0.75rem;
+            letter-spacing: 0.25em;
+            text-transform: uppercase;
+        }
+        #timeline .row {
+            display: flex;
+            justify-content: space-between;
+            color: rgba(190, 255, 255, 0.8);
+        }
+        #timeline .bar {
+            height: 6px;
+            background: rgba(0, 255, 255, 0.2);
+            position: relative;
+        }
+        #timeline .bar::after {
+            content: '';
+            position: absolute;
+            top: -2px;
+            width: 4px;
+            height: 10px;
+            background: #0ff;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
+            transition: left 0.2s ease;
+        }
+    </style>
+</head>
+<body>
+    <div id="startScreen">
+        <h1>HYPERNOVA OVERDRIVE</h1>
+        <p>Click to initiate quantum rave</p>
+        <p style="font-size:0.7rem; letter-spacing:0.3em; opacity:0.5;">Headphones + fullscreen recommended</p>
+    </div>
+    <canvas id="mainCanvas"></canvas>
+    <canvas id="spectrogram"></canvas>
+    <div id="uiLayer">
+        <div id="hudTop">
+            <span>LOOP: ∞</span>
+            <span>ENGINE: PATH-TRACED ∙ PARTICLE FUSION</span>
+            <span>BUILD: 2025-12</span>
+        </div>
+        <div class="glitch" id="stageTitle">SINGULARITY</div>
+        <div id="hudBottom">
+            <span>FPS <span id="fps">0</span></span>
+            <span>SCENE <span id="sceneLabel">01</span></span>
+            <span>AUDIO <span id="audioState">STANDBY</span></span>
+        </div>
+    </div>
+    <div id="timeline">
+        <div class="row"><span>00</span><span>PHASE MAP</span></div>
+        <div class="bar" id="timelineBar"></div>
+        <div class="row"><span>01</span><span>Singularity Bloom</span></div>
+        <div class="row"><span>02</span><span>Quantum City</span></div>
+        <div class="row"><span>03</span><span>Fractal Storm</span></div>
+        <div class="row"><span>04</span><span>Portal Cascade</span></div>
+        <div class="row"><span>05</span><span>Stardust Finale</span></div>
+    </div>
+
+    <script>
+// ============================================================================
+// HYPERNOVA OVERDRIVE
+// Ultra-high fidelity WebGL2 demo with hybrid raymarching, particle fusion,
+// and procedural neuro-bass soundtrack. Designed for 2025 browsers.
+// ============================================================================
+
+const canvas = document.getElementById('mainCanvas');
+const hudStage = document.getElementById('stageTitle');
+const hudScene = document.getElementById('sceneLabel');
+const hudAudio = document.getElementById('audioState');
+const hudFps = document.getElementById('fps');
+const timelineBar = document.getElementById('timelineBar');
+const spectrogram = document.getElementById('spectrogram');
+const startScreen = document.getElementById('startScreen');
+
+const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
+if (!gl) {
+    alert('WebGL2 not supported. HYPERNOVA OVERDRIVE requires a modern browser.');
+    throw new Error('WebGL2 not supported');
+}
+
+// Ensure float render targets
+const colorFloat = gl.getExtension('EXT_color_buffer_float');
+if (!colorFloat) {
+    alert('EXT_color_buffer_float extension required.');
+}
+
+const supportLinear = gl.getExtension('OES_texture_float_linear');
+
+let width = window.innerWidth;
+let height = window.innerHeight;
+function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    width = Math.floor(window.innerWidth * dpr);
+    height = Math.floor(window.innerHeight * dpr);
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.width = '100vw';
+    canvas.style.height = '100vh';
+    gl.viewport(0, 0, width, height);
+
+    spectrogram.width = window.innerWidth;
+    spectrogram.height = 160;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Utility: compile shader
+function compileShader(type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+        throw new Error('Shader error');
+    }
+    return shader;
+}
+
+function createProgram(vsSource, fsSource) {
+    const vs = compileShader(gl.VERTEX_SHADER, vsSource);
+    const fs = compileShader(gl.FRAGMENT_SHADER, fsSource);
+    const program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error('Program link error:', gl.getProgramInfoLog(program));
+        throw new Error('Program error');
+    }
+    return program;
+}
+
+const quadBuffer = gl.createBuffer();
+const quadVertices = new Float32Array([
+    -1, -1,
+     1, -1,
+    -1,  1,
+     1,  1,
+]);
+gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
+
+// ============================================================================
+// SHADERS
+// ============================================================================
+
+const fullscreenVS = `#version 300 es
+in vec2 a_position;
+out vec2 v_uv;
+void main() {
+    v_uv = a_position * 0.5 + 0.5;
+    gl_Position = vec4(a_position, 0.0, 1.0);
+}`;
+
+const raymarchFS = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+out vec4 fragColor;
+
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform vec3 u_cameraPos;
+uniform vec3 u_cameraTarget;
+uniform float u_phase;
+uniform float u_audioEnergy;
+uniform float u_subEnergy;
+uniform float u_sparkEnergy;
+
+#define MAX_STEPS 150
+#define MAX_DIST 150.0
+#define EPS 0.001
+#define TAU 6.28318530718
+
+mat2 rot(float a) {
+    float s = sin(a), c = cos(a);
+    return mat2(c, -s, s, c);
+}
+
+float hash(vec3 p) {
+    p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+    p += dot(p, p.yzx + 19.19);
+    return fract((p.x + p.y) * p.z);
+}
+
+float noise(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    float n = mix(mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
+                      mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+                  mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+                      mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
+    return n;
+}
+
+float fbm(vec3 p) {
+    float f = 0.0;
+    float a = 0.5;
+    mat3 m = mat3(rot(0.5), vec2(0), vec2(0));
+    for (int i = 0; i < 6; i++) {
+        f += a * noise(p);
+        p = p * 2.0 + vec3(0.1, 0.7, 0.3);
+        a *= 0.5;
+    }
+    return f;
+}
+
+struct Result {
+    float dist;
+    float mat;
+};
+
+Result map(vec3 p, float phase) {
+    float t = u_time * 0.65;
+    Result res;
+    res.dist = MAX_DIST;
+    res.mat = 0.0;
+
+    float globalPulse = sin(t * 0.5 + phase * 2.0) * 0.5 + 0.5;
+
+    // Phase 1: Singularity - pulsating toroidal energy core
+    vec3 q = p;
+    q.xz *= rot(t * 0.3);
+    q.xy *= rot(t * 0.5 + sin(t) * 0.3);
+    float singularity = length(vec2(length(q.xz) - (1.5 + 1.2 * sin(t * 1.7) * globalPulse), q.y)) - 0.25;
+    float singularityDensity = singularity;
+
+    // Phase 2: Quantum City - infinite cityscape using boxes
+    vec3 city = p;
+    city.xz *= rot(t * 0.1);
+    vec3 g = city;
+    vec2 cell = floor(g.xz);
+    vec2 local = fract(g.xz) - 0.5;
+    float height = 0.2 + 6.0 * pow(hash(vec3(cell, 1.0)), 4.0);
+    float building = max(max(abs(local.x), abs(local.y)) - 0.45, g.y - height);
+    float cityDist = building;
+
+    // Phase 3: Fractal Storm - animated Mandelbox hybrid
+    vec3 r = p * 0.8;
+    float scale = 1.6;
+    float dr = 1.0;
+    for (int i = 0; i < 5; i++) {
+        r = clamp(r, -1.0, 1.0) * 2.0 - r;
+        float r2 = dot(r, r);
+        float k = max(0.2, min(1.0, 1.5 / r2));
+        r *= k;
+        dr *= k;
+        r = r * scale + vec3(0.3, 0.5, 0.2) + sin(t * 0.8) * 0.1;
+    }
+    float fractal = (length(r) - 2.0) / abs(dr);
+
+    // Phase 4: Portal Cascade - stacked spheres + noise displacement
+    vec3 w = p;
+    float portal = length(w - vec3(0.0, 1.5 * sin(t * 0.7), 0.0)) - (2.5 + 1.0 * sin(t * 1.2));
+    portal += fbm(p * 0.7 + t * 0.4) * 0.3 - 0.1;
+
+    // Phase 5: Stardust - swirling particle nebula density field
+    float nebula = fbm(p * 1.5 + vec3(0.0, t * 0.3, 0.0)) - 0.4;
+    nebula = min(nebula, length(p) - 3.0);
+
+    // Blend based on phase parameter
+    float phase01 = smoothstep(0.0, 1.0, phase);
+    float phase12 = smoothstep(1.0, 2.0, phase);
+    float phase23 = smoothstep(2.0, 3.0, phase);
+    float phase34 = smoothstep(3.0, 4.0, phase);
+    float phase45 = smoothstep(4.0, 5.0, phase);
+
+    float dist = singularity;
+    float mat = 1.0;
+    dist = mix(dist, min(dist, cityDist), phase12);
+    dist = mix(dist, min(dist, fractal), phase23);
+    dist = mix(dist, min(dist, portal), phase34);
+    dist = mix(dist, min(dist, nebula), phase45);
+    mat = 1.0;
+
+    res.dist = dist;
+    res.mat = mat;
+    return res;
+}
+
+vec3 getNormal(vec3 p, float phase) {
+    vec2 e = vec2(EPS, 0.0);
+    return normalize(vec3(
+        map(p + e.xyy, phase).dist - map(p - e.xyy, phase).dist,
+        map(p + e.yxy, phase).dist - map(p - e.yxy, phase).dist,
+        map(p + e.yyx, phase).dist - map(p - e.yyx, phase).dist
+    ));
+}
+
+float softShadow(vec3 ro, vec3 rd, float phase) {
+    float res = 1.0;
+    float t = 0.02;
+    for (int i = 0; i < 40; i++) {
+        vec3 pos = ro + rd * t;
+        float h = map(pos, phase).dist;
+        res = min(res, 10.0 * h / t);
+        t += clamp(h, 0.02, 0.2);
+        if (h < EPS || t > 40.0) break;
+    }
+    return clamp(res, 0.0, 1.0);
+}
+
+vec3 palette(float t) {
+    vec3 a = vec3(0.55, 0.15, 0.9);
+    vec3 b = vec3(0.5, 0.4, 0.7);
+    vec3 c = vec3(0.1, 0.5, 0.8);
+    vec3 d = vec3(0.9, 0.2, 0.3);
+    return a + b * cos(TAU * (c * t + d));
+}
+
+vec3 shade(vec3 ro, vec3 rd, float phase) {
+    float dist = 0.0;
+    float total = 0.0;
+    float mat = 0.0;
+    for (int i = 0; i < MAX_STEPS; i++) {
+        vec3 pos = ro + rd * dist;
+        Result res = map(pos, phase);
+        if (res.dist < EPS) {
+            mat = res.mat;
+            break;
+        }
+        dist += res.dist;
+        if (dist > MAX_DIST) break;
+    }
+
+    vec3 col = vec3(0.0);
+    vec3 pos = ro + rd * dist;
+    vec3 normal = getNormal(pos, phase);
+    vec3 view = -rd;
+
+    vec3 lightPos = vec3(6.0 * cos(u_time * 0.6), 5.0 + sin(u_time * 0.7), 6.0 * sin(u_time * 0.6));
+    vec3 lightDir = normalize(lightPos - pos);
+
+    float diff = max(dot(normal, lightDir), 0.0);
+    float spec = pow(max(dot(normal, normalize(lightDir + view)), 0.0), 128.0);
+    float shadow = softShadow(pos + normal * 0.02, lightDir, phase);
+
+    float fresnel = pow(1.0 - max(dot(normal, view), 0.0), 3.0);
+
+    float sceneHue = mix(0.2, 1.0, clamp(phase / 5.0, 0.0, 1.0));
+    vec3 base = palette(sceneHue + fbm(pos * 0.4 + u_time * 0.1));
+
+    col += base * diff * shadow * (0.7 + 0.6 * u_subEnergy);
+    col += vec3(1.0, 0.9, 0.8) * spec * (0.8 + 0.5 * u_sparkEnergy);
+    col += vec3(0.02, 0.02, 0.05) * dist * 0.015; // distance fog
+    col += fresnel * vec3(0.6, 0.9, 1.5) * (0.5 + 0.5 * u_audioEnergy);
+
+    // bloom pulses
+    float bloom = smoothstep(-0.2, 0.2, map(pos * (1.0 + 0.2 * u_audioEnergy), phase).dist);
+    col += vec3(1.2, 1.5, 2.0) * bloom * (0.3 + 0.7 * u_audioEnergy);
+
+    // volumetric streaks
+    float volumetric = 0.0;
+    vec3 samplePos = pos;
+    for (int i = 0; i < 16; i++) {
+        samplePos += rd * 0.8;
+        volumetric += max(0.0, 0.6 - map(samplePos, phase).dist) * 0.05;
+    }
+    col += volumetric * vec3(0.2, 0.6, 1.2);
+
+    // Phase-specific accents
+    float ph = phase;
+    if (ph < 1.0) {
+        col += vec3(0.5, 0.2, 1.0) * exp(-abs(length(pos) - 1.6)) * (0.4 + 0.8 * u_audioEnergy);
+    } else if (ph < 2.0) {
+        col += vec3(0.2, 0.8, 1.5) * smoothstep(0.0, 0.5, -map(pos + vec3(0, -2, 0), ph).dist);
+    } else if (ph < 3.0) {
+        col += vec3(1.8, 0.6, 1.5) * smoothstep(0.0, 0.8, -map(pos * 0.8, ph).dist);
+    } else if (ph < 4.0) {
+        col += vec3(1.5, 1.2, 0.3) * smoothstep(-0.2, 0.2, portal);
+    } else {
+        col += vec3(1.5, 1.2, 2.0) * pow(max(0.0, 1.0 - length(pos) * 0.1), 3.0);
+    }
+
+    return col;
+}
+
+void main() {
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;
+
+    // Cinematic camera path
+    float t = u_time * 0.35;
+    float camPhase = smoothstep(0.0, 1.0, u_phase / 5.0);
+    vec3 camTarget = vec3(0.0, 0.3 * sin(t * 0.5), 0.0);
+    vec3 camPos = u_cameraPos;
+
+    vec3 forward = normalize(u_cameraTarget - camPos);
+    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), forward));
+    vec3 up = cross(forward, right);
+
+    float fov = mix(1.2, 0.7, camPhase) - u_audioEnergy * 0.1;
+    vec3 rd = normalize(uv.x * right + uv.y * up + fov * forward);
+
+    vec3 col = shade(camPos, rd, u_phase);
+
+    // Post processing tone-map
+    col = col / (vec3(1.0) + col);
+    col = pow(col, vec3(0.95));
+
+    // Chromatic aberration + glitch pulses
+    float glitch = sin(u_time * 12.0 + uv.y * 300.0) * 0.01 * u_sparkEnergy;
+    col.r += glitch;
+    col.b -= glitch;
+
+    // Film grain
+    float grain = hash(vec3(gl_FragCoord.xy, u_time)) * 0.04;
+    col += grain;
+
+    fragColor = vec4(col, 1.0);
+}`;
+
+const particleUpdateFS = `#version 300 es
+precision highp float;
+out vec4 fragColor;
+
+uniform sampler2D u_stateTex;
+uniform float u_time;
+uniform float u_delta;
+uniform vec2 u_resolution;
+uniform float u_phase;
+uniform float u_audioEnergy;
+uniform float u_subEnergy;
+
+float hash(float n) { return fract(sin(n) * 43758.5453123); }
+vec3 hash3(float n) {
+    return vec3(hash(n + 1.0), hash(n + 2.0), hash(n + 3.0));
+}
+
+void main() {
+    vec2 uv = gl_FragCoord.xy / u_resolution;
+    vec4 state = texture(u_stateTex, uv);
+
+    vec3 pos = state.xyz;
+    float life = state.w;
+
+    life -= u_delta;
+    if (life < 0.0) {
+        float seed = u_time + gl_FragCoord.x * 23.42 + gl_FragCoord.y * 11.37;
+        vec3 rnd = hash3(seed);
+        float ring = mix(1.5, 4.0, rnd.x);
+        float angle = rnd.y * 6.2831;
+        pos = vec3(cos(angle), rnd.z * 2.0 - 1.0, sin(angle)) * ring;
+        life = mix(2.0, 6.0, rnd.z);
+    }
+
+    float accel = mix(0.8, 2.4, u_phase / 5.0);
+    float time = u_time * accel;
+
+    vec3 vortex = vec3(-pos.y, pos.x, sin(time + length(pos)));
+    vec3 attractor = normalize(-pos) * 0.5;
+    vec3 bassPush = vec3(sin(time * 3.0 + pos.x), cos(time * 2.0 + pos.y), sin(time * 1.5 + pos.z)) * u_audioEnergy * 4.0;
+
+    vec3 velocity = vortex * 0.8 + attractor + bassPush * 0.6;
+    pos += velocity * u_delta * (0.5 + u_subEnergy * 1.5);
+
+    fragColor = vec4(pos, life);
+}`;
+
+const particleRenderVS = `#version 300 es
+precision highp float;
+layout(location = 0) in vec2 a_corner;
+
+out vec2 v_corner;
+
+uniform sampler2D u_stateTex;
+uniform vec2 u_stateResolution;
+uniform mat4 u_viewProj;
+uniform float u_pointSize;
+
+vec3 fetchPos(int id) {
+    int width = int(u_stateResolution.x);
+    int x = id % width;
+    int y = id / width;
+    vec2 uv = (vec2(x, y) + 0.5) / u_stateResolution;
+    return texture(u_stateTex, uv).xyz;
+}
+
+void main() {
+    int id = gl_InstanceID;
+    vec3 pos = fetchPos(id);
+    v_corner = a_corner;
+
+    mat4 viewProj = u_viewProj;
+    vec4 world = vec4(pos, 1.0);
+    vec4 clip = viewProj * world;
+
+    float ps = u_pointSize;
+    vec2 offs = a_corner * ps;
+    gl_Position = clip + vec4(offs * clip.w, 0.0, 0.0);
+}
+`;
+
+const particleRenderFS = `#version 300 es
+precision highp float;
+in vec2 v_corner;
+out vec4 fragColor;
+
+uniform float u_audioEnergy;
+uniform float u_sparkEnergy;
+uniform float u_phase;
+
+float vignette(vec2 uv) {
+    return smoothstep(1.0, 0.2, length(uv));
+}
+
+void main() {
+    float dist = length(v_corner);
+    float alpha = smoothstep(0.7, 0.0, dist);
+    vec3 base = mix(vec3(0.2, 0.6, 1.4), vec3(1.6, 0.3, 1.8), u_phase / 5.0);
+    vec3 color = base * (0.6 + 1.5 * u_audioEnergy) * (1.0 + u_sparkEnergy);
+    float glow = smoothstep(0.4, 0.0, dist) * 0.8;
+    fragColor = vec4(color * glow, alpha * 0.75);
+    if (fragColor.a < 0.01) discard;
+}`;
+
+// ============================================================================
+// PROGRAMS
+// ============================================================================
+
+const rayProgram = createProgram(fullscreenVS, raymarchFS);
+const rayAttrib = gl.getAttribLocation(rayProgram, 'a_position');
+
+const updateProgram = createProgram(fullscreenVS, particleUpdateFS);
+const updateAttrib = gl.getAttribLocation(updateProgram, 'a_position');
+
+const particleProgram = createProgram(particleRenderVS, particleRenderFS);
+const particleCornerBuffer = gl.createBuffer();
+const quadCorners = new Float32Array([
+    -1, -1,
+     1, -1,
+    -1,  1,
+     1,  1
+]);
+gl.bindBuffer(gl.ARRAY_BUFFER, particleCornerBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, quadCorners, gl.STATIC_DRAW);
+
+// ============================================================================
+// PARTICLE SYSTEM SETUP
+// ============================================================================
+
+const PARTICLE_RES = 256; // 65k particles
+const stateTexA = gl.createTexture();
+const stateTexB = gl.createTexture();
+const fbA = gl.createFramebuffer();
+const fbB = gl.createFramebuffer();
+
+function initStateTexture(tex) {
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, supportLinear ? gl.LINEAR : gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, supportLinear ? gl.LINEAR : gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, PARTICLE_RES, PARTICLE_RES, 0, gl.RGBA, gl.FLOAT, null);
+}
+
+initStateTexture(stateTexA);
+initStateTexture(stateTexB);
+
+function randomState() {
+    const data = new Float32Array(PARTICLE_RES * PARTICLE_RES * 4);
+    for (let i = 0; i < data.length; i += 4) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 1.0 + Math.random() * 4.0;
+        data[i] = Math.cos(angle) * radius;
+        data[i + 1] = (Math.random() - 0.5) * 2.5;
+        data[i + 2] = Math.sin(angle) * radius;
+        data[i + 3] = 2.0 + Math.random() * 4.0;
+    }
+    return data;
+}
+
+const initialData = randomState();
+
+function uploadState(tex, data) {
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, PARTICLE_RES, PARTICLE_RES, gl.RGBA, gl.FLOAT, data);
+}
+
+uploadState(stateTexA, initialData);
+uploadState(stateTexB, initialData);
+
+function attachTextureToFramebuffer(fb, tex) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+        console.error('Framebuffer incomplete', status.toString(16));
+    }
+}
+
+attachTextureToFramebuffer(fbA, stateTexA);
+attachTextureToFramebuffer(fbB, stateTexB);
+
+let sourceTex = stateTexA;
+let targetTex = stateTexB;
+let sourceFB = fbA;
+let targetFB = fbB;
+
+function swapPingPong() {
+    [sourceTex, targetTex] = [targetTex, sourceTex];
+    [sourceFB, targetFB] = [targetFB, sourceFB];
+}
+
+// ============================================================================
+// CAMERA + UNIFORMS
+// ============================================================================
+
+function lookAt(from, to, up) {
+    const z = normalize(subtractVectors(from, to));
+    const x = normalize(cross(up, z));
+    const y = cross(z, x);
+
+    return [
+        x[0], y[0], z[0], 0,
+        x[1], y[1], z[1], 0,
+        x[2], y[2], z[2], 0,
+        -dot(x, from), -dot(y, from), -dot(z, from), 1
+    ];
+}
+
+function perspective(fov, aspect, near, far) {
+    const f = 1.0 / Math.tan(fov / 2);
+    const nf = 1 / (near - far);
+    return [
+        f / aspect, 0, 0, 0,
+        0, f, 0, 0,
+        0, 0, (far + near) * nf, -1,
+        0, 0, (2 * far * near) * nf, 0
+    ];
+}
+
+function multiplyMatrices(a, b) {
+    const out = new Float32Array(16);
+    for (let i = 0; i < 4; ++i) {
+        const ai0 = a[i];
+        const ai1 = a[i + 4];
+        const ai2 = a[i + 8];
+        const ai3 = a[i + 12];
+        out[i] = ai0 * b[0] + ai1 * b[1] + ai2 * b[2] + ai3 * b[3];
+        out[i + 4] = ai0 * b[4] + ai1 * b[5] + ai2 * b[6] + ai3 * b[7];
+        out[i + 8] = ai0 * b[8] + ai1 * b[9] + ai2 * b[10] + ai3 * b[11];
+        out[i + 12] = ai0 * b[12] + ai1 * b[13] + ai2 * b[14] + ai3 * b[15];
+    }
+    return out;
+}
+
+function subtractVectors(a, b) {
+    return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+function cross(a, b) {
+    return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+function normalize(a) {
+    const l = Math.hypot(a[0], a[1], a[2]);
+    if (l === 0) return [0, 0, 0];
+    return [a[0] / l, a[1] / l, a[2] / l];
+}
+function dot(a, b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+const rayUniforms = {
+    u_resolution: gl.getUniformLocation(rayProgram, 'u_resolution'),
+    u_time: gl.getUniformLocation(rayProgram, 'u_time'),
+    u_cameraPos: gl.getUniformLocation(rayProgram, 'u_cameraPos'),
+    u_cameraTarget: gl.getUniformLocation(rayProgram, 'u_cameraTarget'),
+    u_phase: gl.getUniformLocation(rayProgram, 'u_phase'),
+    u_audioEnergy: gl.getUniformLocation(rayProgram, 'u_audioEnergy'),
+    u_subEnergy: gl.getUniformLocation(rayProgram, 'u_subEnergy'),
+    u_sparkEnergy: gl.getUniformLocation(rayProgram, 'u_sparkEnergy')
+};
+
+const updateUniforms = {
+    u_stateTex: gl.getUniformLocation(updateProgram, 'u_stateTex'),
+    u_time: gl.getUniformLocation(updateProgram, 'u_time'),
+    u_delta: gl.getUniformLocation(updateProgram, 'u_delta'),
+    u_resolution: gl.getUniformLocation(updateProgram, 'u_resolution'),
+    u_phase: gl.getUniformLocation(updateProgram, 'u_phase'),
+    u_audioEnergy: gl.getUniformLocation(updateProgram, 'u_audioEnergy'),
+    u_subEnergy: gl.getUniformLocation(updateProgram, 'u_subEnergy')
+};
+
+const particleUniforms = {
+    u_stateTex: gl.getUniformLocation(particleProgram, 'u_stateTex'),
+    u_stateResolution: gl.getUniformLocation(particleProgram, 'u_stateResolution'),
+    u_viewProj: gl.getUniformLocation(particleProgram, 'u_viewProj'),
+    u_pointSize: gl.getUniformLocation(particleProgram, 'u_pointSize'),
+    u_audioEnergy: gl.getUniformLocation(particleProgram, 'u_audioEnergy'),
+    u_sparkEnergy: gl.getUniformLocation(particleProgram, 'u_sparkEnergy'),
+    u_phase: gl.getUniformLocation(particleProgram, 'u_phase')
+};
+
+// ============================================================================
+// AUDIO ENGINE
+// ============================================================================
+
+let audioCtx, analyser, analyserData, freqData, synth;
+const spectCtx = spectrogram.getContext('2d');
+
+class OverdriveSynth {
+    constructor(ctx) {
+        this.ctx = ctx;
+        this.bpm = 142;
+        this.stepTime = 60 / this.bpm / 4;
+        this.currentStep = 0;
+        this.master = ctx.createGain();
+        this.master.gain.value = 0.9;
+
+        this.waveshaper = ctx.createWaveShaper();
+        this.waveshaper.curve = this.makeDistortionCurve(40);
+        this.waveshaper.oversample = '4x';
+
+        this.delay = ctx.createDelay();
+        this.delay.delayTime.value = 0.28;
+        this.feedback = ctx.createGain();
+        this.feedback.gain.value = 0.38;
+        this.delay.connect(this.feedback);
+        this.feedback.connect(this.delay);
+
+        this.reverb = ctx.createConvolver();
+        this.reverb.buffer = this.makeImpulse();
+
+        this.master.connect(this.waveshaper);
+        this.waveshaper.connect(this.delay);
+        this.delay.connect(this.reverb);
+        this.reverb.connect(ctx.destination);
+        this.delay.connect(ctx.destination);
+
+        analyser = ctx.createAnalyser();
+        analyser.fftSize = 2048;
+        analyserData = new Uint8Array(analyser.frequencyBinCount);
+        freqData = new Float32Array(analyser.frequencyBinCount);
+        this.master.connect(analyser);
+
+        this.patterns = {
+            kick: [1,0,0,0, 1,0,1,0, 1,0,0,0, 1,0,1,0],
+            snare: [0,0,0,0, 0,1,0,0, 0,0,0,0, 0,1,0,0],
+            hat: [1,0,1,1, 0,1,1,0, 1,0,1,1, 0,1,1,0],
+            bass: [0,1,0,1, 0,1,0,2, 0,1,0,1, 0,1,0,3],
+            arp: [0,1,2,3, 4,5,6,7, 8,9,10,11, 12,13,14,15]
+        };
+
+        this.bassNotes = [43.65, 49.0, 54.98, 65.41, 73.42, 87.31];
+        this.scale = [0, 3, 5, 7, 10];
+        this.harmonics = [0.5, 1.0, 1.5, 2.0, 3.0];
+        this.isRunning = false;
+    }
+
+    makeDistortionCurve(amount) {
+        const samples = 44100;
+        const curve = new Float32Array(samples);
+        const deg = Math.PI / 180;
+        for (let i = 0; i < samples; ++i) {
+            const x = (i * 2) / samples - 1;
+            curve[i] = (3 + amount) * x * 20 * deg / (Math.PI + amount * Math.abs(x));
+        }
+        return curve;
+    }
+
+    makeImpulse() {
+        const length = this.ctx.sampleRate * 2.5;
+        const impulse = this.ctx.createBuffer(2, length, this.ctx.sampleRate);
+        for (let channel = 0; channel < 2; channel++) {
+            const data = impulse.getChannelData(channel);
+            for (let i = 0; i < length; i++) {
+                const n = Math.random() * 2 - 1;
+                data[i] = n * Math.pow(1 - i / length, 2);
+            }
+        }
+        return impulse;
+    }
+
+    triggerKick(time) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(70, time);
+        osc.frequency.exponentialRampToValueAtTime(28, time + 0.18);
+        gain.gain.setValueAtTime(2.0, time);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.4);
+        osc.connect(gain);
+        gain.connect(this.master);
+        osc.start(time);
+        osc.stop(time + 0.5);
+    }
+
+    triggerSnare(time) {
+        const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.2, this.ctx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = noiseBuffer;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 1800;
+        filter.Q.value = 1;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.8, time);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.25);
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.master);
+        noise.start(time);
+        noise.stop(time + 0.2);
+    }
+
+    triggerHat(time, open) {
+        const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * (open ? 0.35 : 0.12), this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < data.length; ++i) data[i] = Math.random() * 2 - 1;
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        const highpass = this.ctx.createBiquadFilter();
+        highpass.type = 'highpass';
+        highpass.frequency.value = 6000;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(open ? 0.4 : 0.25, time);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + (open ? 0.3 : 0.09));
+        noise.connect(highpass);
+        highpass.connect(gain);
+        gain.connect(this.master);
+        noise.start(time);
+        noise.stop(time + (open ? 0.3 : 0.1));
+    }
+
+    triggerBass(time, note) {
+        const osc = this.ctx.createOscillator();
+        const osc2 = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        osc.type = 'sawtooth';
+        osc.frequency.value = note;
+        osc2.type = 'square';
+        osc2.frequency.value = note * 0.5;
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(180, time);
+        filter.frequency.exponentialRampToValueAtTime(480, time + 0.05);
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(1.0, time + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + this.stepTime * 2);
+        osc.connect(filter);
+        osc2.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.master);
+        osc.start(time);
+        osc.stop(time + this.stepTime * 2);
+        osc2.start(time);
+        osc2.stop(time + this.stepTime * 2);
+    }
+
+    triggerArp(time, noteIndex) {
+        const base = 440 * Math.pow(2, (noteIndex - 9) / 12);
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        osc.type = 'sawtooth';
+        osc.frequency.value = base;
+        filter.type = 'bandpass';
+        filter.frequency.value = base * 2;
+        filter.Q.value = 8;
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.7, time + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + this.stepTime * 0.9);
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.master);
+        osc.start(time);
+        osc.stop(time + this.stepTime);
+    }
+
+    schedule() {
+        if (!this.isRunning) return;
+        const now = this.ctx.currentTime;
+        const lookAhead = 0.2;
+        while (this.stepTime * this.currentStep < now + lookAhead) {
+            const when = this.currentStep * this.stepTime;
+            const stepIndex = this.currentStep % 16;
+            const bar = Math.floor(this.currentStep / 16);
+            const section = Math.floor(bar / 4);
+            if (this.patterns.kick[stepIndex]) this.triggerKick(when);
+            if (this.patterns.snare[stepIndex] && (section % 2 === 1)) this.triggerSnare(when);
+            if (this.patterns.hat[stepIndex]) this.triggerHat(when, (stepIndex % 4 === 2));
+            if (stepIndex % 4 === 0) {
+                const note = this.bassNotes[(bar + stepIndex / 4) % this.bassNotes.length];
+                this.triggerBass(when, note);
+            }
+            if (section >= 1 && this.patterns.arp[stepIndex] !== undefined) {
+                const idx = (this.patterns.arp[stepIndex] + bar) % 24;
+                this.triggerArp(when, idx);
+            }
+            this.currentStep++;
+        }
+        setTimeout(() => this.schedule(), 25);
+    }
+
+    start() {
+        if (this.isRunning) return;
+        this.isRunning = true;
+        this.currentStep = Math.floor(this.ctx.currentTime / this.stepTime);
+        this.schedule();
+    }
+
+    stop() {
+        this.isRunning = false;
+    }
+}
+
+function drawSpectrogram() {
+    if (!analyser) return;
+    analyser.getByteFrequencyData(analyserData);
+    analyser.getFloatFrequencyData(freqData);
+
+    const width = spectrogram.width;
+    const height = spectrogram.height;
+
+    const imageData = spectCtx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    for (let y = height - 1; y > 0; y--) {
+        for (let x = 0; x < width; x++) {
+            const idx = (y * width + x) * 4;
+            const srcIdx = ((y - 1) * width + x) * 4;
+            data[idx] = data[srcIdx];
+            data[idx + 1] = data[srcIdx + 1];
+            data[idx + 2] = data[srcIdx + 2];
+            data[idx + 3] = data[srcIdx + 3];
+        }
+    }
+
+    for (let x = 0; x < width; x++) {
+        const freqIndex = Math.floor((x / width) * analyserData.length);
+        const value = analyserData[freqIndex] / 255;
+        const hue = (freqIndex / analyserData.length) * 360;
+        const idx = x * 4;
+        const color = hslToRgb(hue / 360, 0.8, 0.5 + value * 0.5);
+        data[idx] = color[0];
+        data[idx + 1] = color[1];
+        data[idx + 2] = color[2];
+        data[idx + 3] = Math.floor(180 + value * 75);
+    }
+    spectCtx.putImageData(imageData, 0, 0);
+}
+
+function hslToRgb(h, s, l) {
+    const hue2rgb = (p, q, t) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1/6) return p + (q - p) * 6 * t;
+        if (t < 1/2) return q;
+        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+        return p;
+    };
+    let r, g, b;
+    if (s === 0) {
+        r = g = b = l;
+    } else {
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1/3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1/3);
+    }
+    return [r * 255, g * 255, b * 255];
+}
+
+// ============================================================================
+// MAIN LOOP
+// ============================================================================
+
+let lastTime = performance.now();
+let startTime = performance.now();
+let frameCounter = 0;
+let fpsAccumulator = 0;
+let cameraOffset = 0;
+
+let audioEnergy = 0;
+let subEnergy = 0;
+let sparkEnergy = 0;
+
+const stages = ['SINGULARITY', 'QUANTUM CITY', 'FRACTAL STORM', 'PORTAL CASCADE', 'STARDUST FINALE'];
+
+function updateAudioEnergy() {
+    if (!analyser) return;
+    analyser.getByteFrequencyData(analyserData);
+    let total = 0;
+    let sub = 0;
+    let spark = 0;
+    for (let i = 0; i < analyserData.length; i++) {
+        const v = analyserData[i] / 255;
+        total += v;
+        if (i < 30) sub += v;
+        if (i > analyserData.length * 0.7) spark += v;
+    }
+    audioEnergy = total / analyserData.length;
+    subEnergy = sub / 30;
+    sparkEnergy = spark / (analyserData.length * 0.3);
+}
+
+function updateParticles(dt, t, phase) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, targetFB);
+    gl.viewport(0, 0, PARTICLE_RES, PARTICLE_RES);
+    gl.useProgram(updateProgram);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+    gl.enableVertexAttribArray(updateAttrib);
+    gl.vertexAttribPointer(updateAttrib, 2, gl.FLOAT, false, 0, 0);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, sourceTex);
+    gl.uniform1i(updateUniforms.u_stateTex, 0);
+    gl.uniform1f(updateUniforms.u_time, t);
+    gl.uniform1f(updateUniforms.u_delta, dt);
+    gl.uniform2f(updateUniforms.u_resolution, PARTICLE_RES, PARTICLE_RES);
+    gl.uniform1f(updateUniforms.u_phase, phase);
+    gl.uniform1f(updateUniforms.u_audioEnergy, audioEnergy);
+    gl.uniform1f(updateUniforms.u_subEnergy, subEnergy);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    swapPingPong();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, width, height);
+}
+
+function renderScene(timestamp) {
+    const now = timestamp;
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
+    const t = (now - startTime) / 1000;
+
+    updateAudioEnergy();
+    drawSpectrogram();
+
+    const phaseDuration = 28; // seconds per major phase
+    const totalPhases = 5;
+    const totalTime = phaseDuration * totalPhases;
+    const cycleTime = t % totalTime;
+    const phase = cycleTime / phaseDuration;
+
+    const currentStage = Math.floor(Math.min(phase, totalPhases - 0.001));
+    hudStage.textContent = stages[currentStage];
+    hudScene.textContent = (currentStage + 1).toString().padStart(2, '0');
+    timelineBar.style.setProperty('--progress', (cycleTime / totalTime).toFixed(3));
+    timelineBar.style.setProperty('background', 'rgba(0,255,255,0.25)');
+    timelineBar.style.setProperty('box-shadow', '0 0 20px rgba(0,255,255,0.35)');
+    timelineBar.style.setProperty('--phase', phase.toFixed(3));
+    timelineBar.style.setProperty('--progress', cycleTime / totalTime);
+    const barWidth = Math.min(1, cycleTime / totalTime) * 100;
+    timelineBar.style.background = `linear-gradient(90deg, rgba(0,255,255,0.9) ${barWidth}%, rgba(0,255,255,0.1) ${barWidth}%)`;
+    timelineBar.style.setProperty('--progress', barWidth / 100);
+    timelineBar.style.setProperty('position', 'relative');
+    timelineBar.style.setProperty('overflow', 'hidden');
+    timelineBar.style.setProperty('height', '6px');
+    timelineBar.style.setProperty('border-radius', '3px');
+    timelineBar.style.setProperty('background-size', '100% 100%');
+    timelineBar.style.setProperty('--bar-pos', `${barWidth}%`);
+    timelineBar.style.setProperty('--bar', `${barWidth}%`);
+    timelineBar.style.setProperty('--phase', phase);
+    timelineBar.style.setProperty('--time', cycleTime);
+    timelineBar.style.setProperty('--duration', totalTime);
+    timelineBar.style.setProperty('--phase-index', currentStage);
+    timelineBar.style.setProperty('--phase-progress', (phase - currentStage));
+    timelineBar.style.setProperty('--phase-progress-percent', `${((phase - currentStage) * 100).toFixed(1)}%`);
+    timelineBar.style.setProperty('--phase-total', totalPhases);
+    timelineBar.style.setProperty('--phase-duration', phaseDuration);
+    timelineBar.style.setProperty('--phase-time', cycleTime - currentStage * phaseDuration);
+    timelineBar.style.setProperty('--phase-end', (currentStage + 1) * phaseDuration);
+    timelineBar.style.setProperty('--phase-start', currentStage * phaseDuration);
+    timelineBar.style.setProperty('--phase-elapsed', cycleTime - currentStage * phaseDuration);
+    timelineBar.style.setProperty('--phase-remaining', (currentStage + 1) * phaseDuration - cycleTime);
+    timelineBar.style.setProperty('--phase-name', `'${stages[currentStage]}'`);
+    timelineBar.style.setProperty('--phase-int', currentStage);
+    timelineBar.style.setProperty('--phase-float', phase);
+
+    const indicator = timelineBar.querySelector('span');
+    if (!indicator) {
+        const span = document.createElement('span');
+        span.style.position = 'absolute';
+        span.style.height = '12px';
+        span.style.width = '4px';
+        span.style.top = '-3px';
+        span.style.background = '#0ff';
+        span.style.boxShadow = '0 0 15px rgba(0,255,255,0.8)';
+        timelineBar.appendChild(span);
+    }
+    const pointer = timelineBar.querySelector('span');
+    pointer.style.left = `${barWidth}%`;
+
+    updateParticles(dt, t, phase);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, width, height);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // Camera path
+    const camRadius = 9.5 + Math.sin(t * 0.19) * 2.5;
+    const camHeight = 2.5 + Math.sin(t * 0.13) * 2.0;
+    const camAngle = t * 0.18 + Math.sin(t * 0.4) * 0.3;
+    const cameraPos = [Math.cos(camAngle) * camRadius, camHeight, Math.sin(camAngle) * camRadius];
+    const cameraTarget = [0, Math.sin(t * 0.2) * 0.6, 0];
+
+    gl.useProgram(rayProgram);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+    gl.enableVertexAttribArray(rayAttrib);
+    gl.vertexAttribPointer(rayAttrib, 2, gl.FLOAT, false, 0, 0);
+
+    gl.uniform2f(rayUniforms.u_resolution, width, height);
+    gl.uniform1f(rayUniforms.u_time, t);
+    gl.uniform3f(rayUniforms.u_cameraPos, cameraPos[0], cameraPos[1], cameraPos[2]);
+    gl.uniform3f(rayUniforms.u_cameraTarget, cameraTarget[0], cameraTarget[1], cameraTarget[2]);
+    gl.uniform1f(rayUniforms.u_phase, phase);
+    gl.uniform1f(rayUniforms.u_audioEnergy, audioEnergy);
+    gl.uniform1f(rayUniforms.u_subEnergy, subEnergy);
+    gl.uniform1f(rayUniforms.u_sparkEnergy, sparkEnergy);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    // Particle Render Pass
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    gl.useProgram(particleProgram);
+    gl.bindBuffer(gl.ARRAY_BUFFER, particleCornerBuffer);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, sourceTex);
+    gl.uniform1i(particleUniforms.u_stateTex, 0);
+    gl.uniform2f(particleUniforms.u_stateResolution, PARTICLE_RES, PARTICLE_RES);
+
+    const aspect = width / height;
+    const projection = perspective(1.0, aspect, 0.1, 200.0);
+    const view = lookAt(cameraPos, cameraTarget, [0, 1, 0]);
+    const viewProj = multiplyMatrices(projection, view);
+
+    gl.uniformMatrix4fv(particleUniforms.u_viewProj, false, viewProj);
+    gl.uniform1f(particleUniforms.u_pointSize, Math.max(0.004, 0.008 - phase * 0.0008));
+    gl.uniform1f(particleUniforms.u_audioEnergy, audioEnergy);
+    gl.uniform1f(particleUniforms.u_sparkEnergy, sparkEnergy);
+    gl.uniform1f(particleUniforms.u_phase, phase);
+
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, PARTICLE_RES * PARTICLE_RES);
+    gl.disable(gl.BLEND);
+
+    frameCounter++;
+    fpsAccumulator += dt;
+    if (fpsAccumulator > 0.5) {
+        const fps = Math.round(frameCounter / fpsAccumulator);
+        hudFps.textContent = fps;
+        frameCounter = 0;
+        fpsAccumulator = 0;
+    }
+
+    requestAnimationFrame(renderScene);
+}
+
+function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    synth = new OverdriveSynth(audioCtx);
+    synth.start();
+    hudAudio.textContent = 'ONLINE';
+}
+
+startScreen.addEventListener('click', async () => {
+    startScreen.style.display = 'none';
+    if (!audioCtx) initAudio();
+    startTime = performance.now();
+    lastTime = performance.now();
+    requestAnimationFrame(renderScene);
+});
+
+// Pause/resume audio with visibility
+let wasRunning = false;
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        if (synth) {
+            wasRunning = synth.isRunning;
+            synth.stop();
+            hudAudio.textContent = 'PAUSED';
+        }
+    } else {
+        if (synth && wasRunning) {
+            synth.start();
+            hudAudio.textContent = 'ONLINE';
+        }
+    }
+});
+
+    </script>
+</body>
+</html>
