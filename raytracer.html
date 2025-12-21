@@ -1,0 +1,1179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CHROME SPHERES - Raytracing Demo</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #000; 
+            overflow: hidden; 
+            font-family: 'Courier New', monospace;
+        }
+        canvas { display: block; }
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #0ff;
+            font-size: 14px;
+            z-index: 30;
+            text-shadow: 0 0 10px #0ff;
+        }
+        #scroller {
+            position: fixed;
+            bottom: 40px;
+            left: 0;
+            width: 100%;
+            font-size: 36px;
+            font-weight: bold;
+            color: #fff;
+            white-space: nowrap;
+            z-index: 20;
+            text-shadow: 0 0 20px #f0f, 0 0 40px #f0f;
+            font-family: 'Arial Black', sans-serif;
+        }
+        #startScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2a 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            cursor: pointer;
+        }
+        #startScreen h1 {
+            font-size: 72px;
+            background: linear-gradient(90deg, #ff00ff, #00ffff, #ff00ff);
+            background-size: 200% 100%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: gradient 3s linear infinite;
+            margin-bottom: 20px;
+        }
+        #startScreen p {
+            font-size: 24px;
+            color: #888;
+            animation: blink 1s ease-in-out infinite;
+        }
+        #startScreen .sub {
+            font-size: 16px;
+            color: #666;
+            margin-top: 40px;
+            animation: none;
+        }
+        @keyframes gradient {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 200% 50%; }
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        #visualizer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 80px;
+            z-index: 15;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+    <div id="startScreen">
+        <h1>CHROME SPHERES</h1>
+        <p>[ CLICK TO START ]</p>
+        <p class="sub">🎵 Turn up your speakers for fat bass 🎵</p>
+    </div>
+    <canvas id="mainCanvas"></canvas>
+    <canvas id="visualizer"></canvas>
+    <div id="scroller"></div>
+    <div id="info">FPS: <span id="fps">0</span> | <span id="effect">RAYTRACING</span></div>
+
+    <script>
+// ============================================================================
+// CHROME SPHERES - Classic Raytracing Demo with Techno
+// Real-time GPU raytracing with Web Audio synthesized music
+// ============================================================================
+
+const startScreen = document.getElementById('startScreen');
+const canvas = document.getElementById('mainCanvas');
+const visualizerCanvas = document.getElementById('visualizer');
+const gl = canvas.getContext('webgl2');
+const visCtx = visualizerCanvas.getContext('2d');
+
+let audioCtx, analyser, analyserData;
+let startTime = 0;
+let bassLevel = 0;
+let kickLevel = 0;
+
+// Resize handler
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    visualizerCanvas.width = window.innerWidth;
+    visualizerCanvas.height = 80;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ============================================================================
+// SHADER CODE - GPU Raytracing
+// ============================================================================
+
+const vertexShaderSource = `#version 300 es
+in vec2 a_position;
+out vec2 v_uv;
+void main() {
+    v_uv = a_position * 0.5 + 0.5;
+    gl_Position = vec4(a_position, 0.0, 1.0);
+}`;
+
+const fragmentShaderSource = `#version 300 es
+precision highp float;
+
+in vec2 v_uv;
+out vec4 fragColor;
+
+uniform float u_time;
+uniform vec2 u_resolution;
+uniform float u_bass;
+uniform float u_kick;
+
+#define MAX_STEPS 100
+#define MAX_DIST 100.0
+#define SURF_DIST 0.001
+#define PI 3.14159265359
+
+// Rotation matrix
+mat2 rot2D(float a) {
+    float s = sin(a), c = cos(a);
+    return mat2(c, -s, s, c);
+}
+
+// Sphere SDF
+float sdSphere(vec3 p, float r) {
+    return length(p) - r;
+}
+
+// Plane SDF
+float sdPlane(vec3 p, vec3 n, float h) {
+    return dot(p, n) + h;
+}
+
+// Box SDF
+float sdBox(vec3 p, vec3 b) {
+    vec3 q = abs(p) - b;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+}
+
+// Torus SDF
+float sdTorus(vec3 p, vec2 t) {
+    vec2 q = vec2(length(p.xz) - t.x, p.y);
+    return length(q) - t.y;
+}
+
+// Smooth min for blending
+float smin(float a, float b, float k) {
+    float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+    return mix(b, a, h) - k * h * (1.0 - h);
+}
+
+// Scene distance function
+vec2 map(vec3 p) {
+    float t = u_time;
+    
+    // Ground plane (checkerboard)
+    float ground = sdPlane(p, vec3(0.0, 1.0, 0.0), 0.0);
+    
+    // Main floating spheres with bass reaction
+    float bassOffset = u_bass * 0.3;
+    float kickPulse = u_kick * 0.2;
+    
+    // Center large sphere
+    vec3 sp1 = p - vec3(0.0, 1.5 + sin(t * 0.7) * 0.3 + bassOffset, 0.0);
+    float sphere1 = sdSphere(sp1, 1.0 + kickPulse);
+    
+    // Orbiting spheres
+    float orbitRadius = 2.5;
+    float orbitSpeed = t * 0.5;
+    
+    vec3 sp2 = p - vec3(
+        sin(orbitSpeed) * orbitRadius,
+        1.0 + sin(t * 1.3 + 1.0) * 0.4 + bassOffset,
+        cos(orbitSpeed) * orbitRadius
+    );
+    float sphere2 = sdSphere(sp2, 0.6 + kickPulse * 0.5);
+    
+    vec3 sp3 = p - vec3(
+        sin(orbitSpeed + 2.094) * orbitRadius,
+        1.2 + sin(t * 1.1 + 2.0) * 0.35 + bassOffset,
+        cos(orbitSpeed + 2.094) * orbitRadius
+    );
+    float sphere3 = sdSphere(sp3, 0.5 + kickPulse * 0.5);
+    
+    vec3 sp4 = p - vec3(
+        sin(orbitSpeed + 4.189) * orbitRadius,
+        0.8 + sin(t * 0.9 + 3.0) * 0.3 + bassOffset,
+        cos(orbitSpeed + 4.189) * orbitRadius
+    );
+    float sphere4 = sdSphere(sp4, 0.7 + kickPulse * 0.5);
+    
+    // Smaller dancing spheres
+    float smallOrbit = 4.0;
+    float smallSpeed = t * 0.8;
+    
+    vec3 sp5 = p - vec3(
+        sin(smallSpeed * 1.2) * smallOrbit,
+        0.4 + sin(t * 2.0) * 0.2 + bassOffset * 0.5,
+        cos(smallSpeed * 1.2) * smallOrbit
+    );
+    float sphere5 = sdSphere(sp5, 0.3 + kickPulse * 0.3);
+    
+    vec3 sp6 = p - vec3(
+        sin(smallSpeed * 1.2 + PI) * smallOrbit,
+        0.4 + sin(t * 2.0 + PI) * 0.2 + bassOffset * 0.5,
+        cos(smallSpeed * 1.2 + PI) * smallOrbit
+    );
+    float sphere6 = sdSphere(sp6, 0.3 + kickPulse * 0.3);
+    
+    // Floating torus ring
+    vec3 torusPos = p - vec3(0.0, 3.0 + sin(t * 0.3) * 0.5 + bassOffset, 0.0);
+    torusPos.xz *= rot2D(t * 0.2);
+    torusPos.xy *= rot2D(t * 0.15);
+    float torus = sdTorus(torusPos, vec2(1.5 + kickPulse, 0.15));
+    
+    // Combine all spheres
+    float spheres = sphere1;
+    spheres = min(spheres, sphere2);
+    spheres = min(spheres, sphere3);
+    spheres = min(spheres, sphere4);
+    spheres = min(spheres, sphere5);
+    spheres = min(spheres, sphere6);
+    spheres = min(spheres, torus);
+    
+    // Material IDs: 0 = ground, 1 = chrome
+    if (ground < spheres) {
+        return vec2(ground, 0.0);
+    }
+    return vec2(spheres, 1.0);
+}
+
+// Calculate normal
+vec3 calcNormal(vec3 p) {
+    vec2 e = vec2(0.001, 0.0);
+    return normalize(vec3(
+        map(p + e.xyy).x - map(p - e.xyy).x,
+        map(p + e.yxy).x - map(p - e.yxy).x,
+        map(p + e.yyx).x - map(p - e.yyx).x
+    ));
+}
+
+// Raymarching
+vec2 rayMarch(vec3 ro, vec3 rd) {
+    float d = 0.0;
+    float mat = 0.0;
+    for (int i = 0; i < MAX_STEPS; i++) {
+        vec3 p = ro + rd * d;
+        vec2 res = map(p);
+        if (res.x < SURF_DIST) {
+            mat = res.y;
+            break;
+        }
+        if (d > MAX_DIST) break;
+        d += res.x;
+    }
+    return vec2(d, mat);
+}
+
+// Soft shadows
+float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
+    float res = 1.0;
+    float t = mint;
+    for (int i = 0; i < 32; i++) {
+        float h = map(ro + rd * t).x;
+        res = min(res, k * h / t);
+        t += clamp(h, 0.02, 0.2);
+        if (h < 0.001 || t > maxt) break;
+    }
+    return clamp(res, 0.0, 1.0);
+}
+
+// Ambient occlusion
+float calcAO(vec3 pos, vec3 nor) {
+    float occ = 0.0;
+    float sca = 1.0;
+    for (int i = 0; i < 5; i++) {
+        float h = 0.01 + 0.12 * float(i) / 4.0;
+        float d = map(pos + h * nor).x;
+        occ += (h - d) * sca;
+        sca *= 0.95;
+    }
+    return clamp(1.0 - 3.0 * occ, 0.0, 1.0);
+}
+
+// Checkerboard pattern
+vec3 checkerboard(vec3 p) {
+    float t = u_time;
+    vec2 uv = p.xz;
+    
+    // Add some wave distortion synced to bass
+    uv += u_bass * 0.1 * vec2(sin(p.z * 2.0 + t), cos(p.x * 2.0 + t));
+    
+    float checker = mod(floor(uv.x) + floor(uv.y), 2.0);
+    
+    // Color the squares with a gradient
+    vec3 color1 = vec3(0.02, 0.02, 0.05); // Dark blue-black
+    vec3 color2 = vec3(0.9, 0.9, 0.95);   // Light silver
+    
+    // Add some color variation based on position
+    color1 += 0.02 * vec3(sin(p.x * 0.5), sin(p.z * 0.5), cos((p.x + p.z) * 0.3));
+    
+    return mix(color1, color2, checker);
+}
+
+// Sky/environment
+vec3 getSky(vec3 rd) {
+    float t = u_time;
+    
+    // Gradient sky
+    vec3 col = mix(
+        vec3(0.1, 0.0, 0.2),
+        vec3(0.0, 0.0, 0.1),
+        rd.y * 0.5 + 0.5
+    );
+    
+    // Add some stars
+    vec3 stars = rd * 100.0;
+    float starNoise = fract(sin(dot(floor(stars), vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+    if (starNoise > 0.98) {
+        col += vec3(starNoise - 0.98) * 50.0 * (0.5 + 0.5 * sin(t * 5.0 + starNoise * 100.0));
+    }
+    
+    // Colored nebula clouds
+    float nebula = sin(rd.x * 3.0 + t * 0.1) * sin(rd.y * 2.0) * sin(rd.z * 2.5 + t * 0.15);
+    col += vec3(0.5, 0.0, 0.8) * max(nebula, 0.0) * 0.3;
+    col += vec3(0.0, 0.3, 0.5) * max(-nebula, 0.0) * 0.2;
+    
+    // Bass reactive glow
+    col += vec3(0.2, 0.0, 0.3) * u_bass * 0.5;
+    
+    return col;
+}
+
+// Main render function
+vec3 render(vec3 ro, vec3 rd) {
+    vec3 col = getSky(rd);
+    
+    vec2 res = rayMarch(ro, rd);
+    float d = res.x;
+    float mat = res.y;
+    
+    if (d < MAX_DIST) {
+        vec3 p = ro + rd * d;
+        vec3 n = calcNormal(p);
+        
+        // Lighting
+        vec3 lightPos = vec3(5.0, 10.0, -5.0);
+        vec3 lightDir = normalize(lightPos - p);
+        vec3 viewDir = -rd;
+        vec3 halfDir = normalize(lightDir + viewDir);
+        
+        float diff = max(dot(n, lightDir), 0.0);
+        float spec = pow(max(dot(n, halfDir), 0.0), 64.0);
+        float shadow = softShadow(p + n * 0.02, lightDir, 0.02, 20.0, 8.0);
+        float ao = calcAO(p, n);
+        
+        // Secondary light (colored)
+        vec3 light2Pos = vec3(-8.0, 5.0, 8.0);
+        vec3 light2Dir = normalize(light2Pos - p);
+        float diff2 = max(dot(n, light2Dir), 0.0);
+        vec3 light2Color = vec3(0.3, 0.1, 0.5) * (1.0 + u_bass);
+        
+        // Third light (bass reactive)
+        vec3 light3Pos = vec3(0.0, -2.0, 0.0);
+        vec3 light3Dir = normalize(light3Pos - p);
+        float diff3 = max(dot(n, light3Dir), 0.0);
+        vec3 light3Color = vec3(0.0, 0.5, 1.0) * u_kick * 2.0;
+        
+        if (mat < 0.5) {
+            // Ground - checkerboard
+            vec3 albedo = checkerboard(p);
+            
+            // Fresnel for ground reflection
+            float fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
+            
+            // Reflect environment
+            vec3 reflDir = reflect(rd, n);
+            vec2 reflRes = rayMarch(p + n * 0.02, reflDir);
+            vec3 reflCol = getSky(reflDir);
+            
+            if (reflRes.x < MAX_DIST) {
+                vec3 reflP = p + n * 0.02 + reflDir * reflRes.x;
+                vec3 reflN = calcNormal(reflP);
+                
+                // Chrome reflection on ground
+                if (reflRes.y > 0.5) {
+                    vec3 reflReflDir = reflect(reflDir, reflN);
+                    reflCol = getSky(reflReflDir);
+                    reflCol += vec3(0.8, 0.85, 0.9) * 0.3; // Chrome tint
+                }
+            }
+            
+            col = albedo * (diff * shadow + 0.1) * ao;
+            col += diff2 * light2Color * albedo * 0.5;
+            col += diff3 * light3Color * 0.3;
+            col = mix(col, reflCol * 0.5, fresnel * 0.4);
+            col += spec * shadow * 0.3;
+            
+        } else {
+            // Chrome spheres - highly reflective
+            vec3 baseColor = vec3(0.9, 0.92, 0.95);
+            
+            // Multiple reflection bounces for chrome effect
+            vec3 reflCol = vec3(0.0);
+            vec3 currentRd = rd;
+            vec3 currentP = p;
+            vec3 currentN = n;
+            float reflStrength = 1.0;
+            
+            for (int bounce = 0; bounce < 3; bounce++) {
+                vec3 reflDir = reflect(currentRd, currentN);
+                vec2 reflRes = rayMarch(currentP + currentN * 0.02, reflDir);
+                
+                if (reflRes.x < MAX_DIST) {
+                    vec3 reflP = currentP + currentN * 0.02 + reflDir * reflRes.x;
+                    vec3 reflN = calcNormal(reflP);
+                    
+                    if (reflRes.y < 0.5) {
+                        // Hit ground - get checkerboard
+                        vec3 groundCol = checkerboard(reflP);
+                        float groundDiff = max(dot(reflN, lightDir), 0.0);
+                        float groundShadow = softShadow(reflP + reflN * 0.02, lightDir, 0.02, 20.0, 8.0);
+                        reflCol += groundCol * (groundDiff * groundShadow + 0.1) * reflStrength;
+                        break;
+                    } else {
+                        // Hit another chrome - continue bouncing
+                        currentP = reflP;
+                        currentN = reflN;
+                        currentRd = reflDir;
+                        reflStrength *= 0.7;
+                    }
+                } else {
+                    // Hit sky
+                    reflCol += getSky(reflDir) * reflStrength;
+                    break;
+                }
+            }
+            
+            // Fresnel effect
+            float fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 5.0);
+            fresnel = 0.04 + 0.96 * fresnel;
+            
+            col = mix(baseColor * 0.1, reflCol, fresnel);
+            col += spec * shadow * 2.0;
+            col += diff2 * light2Color * 0.2;
+            col += diff3 * light3Color * 0.3;
+            
+            // Edge glow
+            float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 4.0);
+            col += rim * vec3(0.3, 0.5, 1.0) * (0.5 + u_kick);
+        }
+        
+        // Fog
+        float fog = 1.0 - exp(-d * 0.03);
+        col = mix(col, getSky(rd) * 0.5, fog);
+    }
+    
+    return col;
+}
+
+void main() {
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;
+    
+    float t = u_time;
+    
+    // Camera animation
+    float camDist = 8.0 + sin(t * 0.2) * 2.0;
+    float camHeight = 3.0 + sin(t * 0.15) * 1.5;
+    float camAngle = t * 0.1;
+    
+    vec3 ro = vec3(
+        sin(camAngle) * camDist,
+        camHeight,
+        cos(camAngle) * camDist
+    );
+    
+    vec3 lookAt = vec3(0.0, 1.0, 0.0);
+    
+    // Camera matrix
+    vec3 forward = normalize(lookAt - ro);
+    vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), forward));
+    vec3 up = cross(forward, right);
+    
+    vec3 rd = normalize(uv.x * right + uv.y * up + 1.5 * forward);
+    
+    // Render
+    vec3 col = render(ro, rd);
+    
+    // Post processing
+    // Vignette
+    float vignette = 1.0 - dot(v_uv - 0.5, v_uv - 0.5) * 1.5;
+    col *= vignette;
+    
+    // Contrast and saturation boost
+    col = pow(col, vec3(0.9));
+    col = mix(vec3(dot(col, vec3(0.299, 0.587, 0.114))), col, 1.2);
+    
+    // Chromatic aberration on bass hits
+    float chromaStrength = u_kick * 0.01;
+    if (chromaStrength > 0.001) {
+        vec2 chromaUV = v_uv - 0.5;
+        float chromaDist = length(chromaUV);
+        // This is a subtle effect - actual implementation would need separate texture reads
+        col.r *= 1.0 + chromaDist * chromaStrength * 2.0;
+        col.b *= 1.0 - chromaDist * chromaStrength * 2.0;
+    }
+    
+    // Gamma correction
+    col = pow(col, vec3(1.0 / 2.2));
+    
+    // Clamp and output
+    fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+// ============================================================================
+// WebGL Setup
+// ============================================================================
+
+function createShader(type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+        return null;
+    }
+    return shader;
+}
+
+function createProgram(vsSource, fsSource) {
+    const vs = createShader(gl.VERTEX_SHADER, vsSource);
+    const fs = createShader(gl.FRAGMENT_SHADER, fsSource);
+    const program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error('Program link error:', gl.getProgramInfoLog(program));
+        return null;
+    }
+    return program;
+}
+
+const program = createProgram(vertexShaderSource, fragmentShaderSource);
+const positionBuffer = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+
+const positionLoc = gl.getAttribLocation(program, 'a_position');
+const timeLoc = gl.getUniformLocation(program, 'u_time');
+const resolutionLoc = gl.getUniformLocation(program, 'u_resolution');
+const bassLoc = gl.getUniformLocation(program, 'u_bass');
+const kickLoc = gl.getUniformLocation(program, 'u_kick');
+
+gl.useProgram(program);
+gl.enableVertexAttribArray(positionLoc);
+gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 0, 0);
+
+// ============================================================================
+// TECHNO MUSIC SYNTHESIZER
+// ============================================================================
+
+class TechnoSynth {
+    constructor(ctx) {
+        this.ctx = ctx;
+        this.bpm = 138;
+        this.stepTime = 60 / this.bpm / 4;
+        this.step = 0;
+        this.isPlaying = false;
+        
+        // Master output
+        this.master = ctx.createGain();
+        this.master.gain.value = 0.7;
+        
+        // Compressor for that fat sound
+        this.compressor = ctx.createDynamicsCompressor();
+        this.compressor.threshold.value = -24;
+        this.compressor.knee.value = 30;
+        this.compressor.ratio.value = 12;
+        this.compressor.attack.value = 0.003;
+        this.compressor.release.value = 0.25;
+        
+        // Distortion for warmth
+        this.distortion = ctx.createWaveShaper();
+        this.distortion.curve = this.makeDistortionCurve(20);
+        this.distortion.oversample = '4x';
+        
+        // Filter for movement
+        this.masterFilter = ctx.createBiquadFilter();
+        this.masterFilter.type = 'lowpass';
+        this.masterFilter.frequency.value = 20000;
+        this.masterFilter.Q.value = 1;
+        
+        this.master.connect(this.compressor);
+        this.compressor.connect(this.masterFilter);
+        this.masterFilter.connect(this.distortion);
+        this.distortion.connect(ctx.destination);
+        
+        // Create analyser
+        analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyserData = new Uint8Array(analyser.frequencyBinCount);
+        this.master.connect(analyser);
+        
+        // Kick patterns (1 = hit, 0 = rest)
+        this.kickPattern = [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0];
+        this.kickPattern2 = [1,0,0,0, 1,0,0,1, 1,0,0,0, 1,0,1,0];
+        
+        // Hi-hat patterns
+        this.hihatPattern = [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0];
+        this.hihatPattern2 = [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,1,1,1];
+        
+        // Snare/clap patterns
+        this.snarePattern = [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0];
+        
+        // Bass patterns (note index)
+        this.bassPattern = [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0];
+        this.bassNotes = [55, 55, 55, 55, 73.4, 73.4, 55, 55]; // A1 and D2
+        
+        // Synth patterns
+        this.synthPattern = [1,0,0,1, 0,0,1,0, 0,1,0,0, 1,0,0,1];
+        this.synthNotes = [220, 277.18, 329.63, 220, 293.66, 220, 369.99, 329.63];
+    }
+    
+    makeDistortionCurve(amount) {
+        const samples = 44100;
+        const curve = new Float32Array(samples);
+        for (let i = 0; i < samples; i++) {
+            const x = (i * 2) / samples - 1;
+            curve[i] = (Math.PI + amount) * x / (Math.PI + amount * Math.abs(x));
+        }
+        return curve;
+    }
+    
+    // Fat 909-style kick drum
+    playKick(time) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const osc2 = this.ctx.createOscillator();
+        const gain2 = this.ctx.createGain();
+        
+        // Main body
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(150, time);
+        osc.frequency.exponentialRampToValueAtTime(35, time + 0.08);
+        
+        gain.gain.setValueAtTime(1.5, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
+        
+        // Click transient
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(1200, time);
+        osc2.frequency.exponentialRampToValueAtTime(80, time + 0.02);
+        
+        gain2.gain.setValueAtTime(0.8, time);
+        gain2.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+        
+        osc.connect(gain);
+        osc2.connect(gain2);
+        gain.connect(this.master);
+        gain2.connect(this.master);
+        
+        osc.start(time);
+        osc.stop(time + 0.5);
+        osc2.start(time);
+        osc2.stop(time + 0.05);
+        
+        // Signal kick hit for visuals
+        setTimeout(() => { kickLevel = 1; }, (time - this.ctx.currentTime) * 1000);
+    }
+    
+    // Punchy hi-hat
+    playHihat(time, open = false) {
+        const bufferSize = this.ctx.sampleRate * 0.1;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+        
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.value = 7000;
+        
+        const filter2 = this.ctx.createBiquadFilter();
+        filter2.type = 'bandpass';
+        filter2.frequency.value = 10000;
+        filter2.Q.value = 1;
+        
+        const gain = this.ctx.createGain();
+        const decay = open ? 0.2 : 0.05;
+        gain.gain.setValueAtTime(0.3, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
+        
+        noise.connect(filter);
+        filter.connect(filter2);
+        filter2.connect(gain);
+        gain.connect(this.master);
+        
+        noise.start(time);
+        noise.stop(time + decay);
+    }
+    
+    // Clap/snare
+    playSnare(time) {
+        const bufferSize = this.ctx.sampleRate * 0.2;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+        
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 3000;
+        filter.Q.value = 1;
+        
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.5, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+        
+        // Tonal layer
+        const osc = this.ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.value = 200;
+        
+        const oscGain = this.ctx.createGain();
+        oscGain.gain.setValueAtTime(0.3, time);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+        
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.master);
+        
+        osc.connect(oscGain);
+        oscGain.connect(this.master);
+        
+        noise.start(time);
+        noise.stop(time + 0.2);
+        osc.start(time);
+        osc.stop(time + 0.05);
+    }
+    
+    // Deep sub bass
+    playBass(time, freq) {
+        const osc = this.ctx.createOscillator();
+        const osc2 = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        
+        osc.type = 'sawtooth';
+        osc.frequency.value = freq;
+        
+        osc2.type = 'square';
+        osc2.frequency.value = freq * 0.5;
+        
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(500, time);
+        filter.frequency.exponentialRampToValueAtTime(100, time + 0.2);
+        filter.Q.value = 5;
+        
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.6, time + 0.01);
+        gain.gain.setValueAtTime(0.6, time + this.stepTime * 3);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + this.stepTime * 4);
+        
+        osc.connect(filter);
+        osc2.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.master);
+        
+        osc.start(time);
+        osc.stop(time + this.stepTime * 4);
+        osc2.start(time);
+        osc2.stop(time + this.stepTime * 4);
+    }
+    
+    // Acid-style synth lead
+    playSynth(time, freq) {
+        const osc = this.ctx.createOscillator();
+        const osc2 = this.ctx.createOscillator();
+        const filter = this.ctx.createBiquadFilter();
+        const gain = this.ctx.createGain();
+        
+        osc.type = 'sawtooth';
+        osc.frequency.value = freq;
+        
+        osc2.type = 'square';
+        osc2.frequency.value = freq * 1.005; // Slight detune
+        
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(3000, time);
+        filter.frequency.exponentialRampToValueAtTime(300, time + 0.1);
+        filter.Q.value = 15;
+        
+        gain.gain.setValueAtTime(0.15, time);
+        gain.gain.setValueAtTime(0.15, time + this.stepTime * 0.8);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + this.stepTime);
+        
+        osc.connect(filter);
+        osc2.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.master);
+        
+        osc.start(time);
+        osc.stop(time + this.stepTime);
+        osc2.start(time);
+        osc2.stop(time + this.stepTime);
+    }
+    
+    // Pad/atmosphere
+    playPad(time, notes, duration) {
+        notes.forEach((freq, i) => {
+            const osc = this.ctx.createOscillator();
+            const filter = this.ctx.createBiquadFilter();
+            const gain = this.ctx.createGain();
+            
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            
+            filter.type = 'lowpass';
+            filter.frequency.value = 2000;
+            
+            gain.gain.setValueAtTime(0, time);
+            gain.gain.linearRampToValueAtTime(0.08, time + duration * 0.3);
+            gain.gain.setValueAtTime(0.08, time + duration * 0.7);
+            gain.gain.linearRampToValueAtTime(0, time + duration);
+            
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.master);
+            
+            osc.start(time);
+            osc.stop(time + duration);
+        });
+    }
+    
+    // Rising effect
+    playRiser(time, duration) {
+        const osc = this.ctx.createOscillator();
+        const filter = this.ctx.createBiquadFilter();
+        const gain = this.ctx.createGain();
+        
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(100, time);
+        osc.frequency.exponentialRampToValueAtTime(2000, time + duration);
+        
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(200, time);
+        filter.frequency.exponentialRampToValueAtTime(8000, time + duration);
+        filter.Q.value = 5;
+        
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.3, time + duration * 0.8);
+        gain.gain.linearRampToValueAtTime(0, time + duration);
+        
+        // Noise layer
+        const bufferSize = this.ctx.sampleRate * duration;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        
+        const noiseFilter = this.ctx.createBiquadFilter();
+        noiseFilter.type = 'bandpass';
+        noiseFilter.frequency.setValueAtTime(500, time);
+        noiseFilter.frequency.exponentialRampToValueAtTime(10000, time + duration);
+        
+        const noiseGain = this.ctx.createGain();
+        noiseGain.gain.setValueAtTime(0, time);
+        noiseGain.gain.linearRampToValueAtTime(0.2, time + duration);
+        
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.master);
+        
+        noise.connect(noiseFilter);
+        noiseFilter.connect(noiseGain);
+        noiseGain.connect(this.master);
+        
+        osc.start(time);
+        osc.stop(time + duration);
+        noise.start(time);
+        noise.stop(time + duration);
+    }
+    
+    // Impact/drop effect
+    playImpact(time) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(80, time);
+        osc.frequency.exponentialRampToValueAtTime(20, time + 1.5);
+        
+        gain.gain.setValueAtTime(1, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 2);
+        
+        // Noise burst
+        const bufferSize = this.ctx.sampleRate * 0.5;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        
+        const noiseGain = this.ctx.createGain();
+        noiseGain.gain.setValueAtTime(0.5, time);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, time + 0.3);
+        
+        osc.connect(gain);
+        gain.connect(this.master);
+        noise.connect(noiseGain);
+        noiseGain.connect(this.master);
+        
+        osc.start(time);
+        osc.stop(time + 2);
+        noise.start(time);
+        noise.stop(time + 0.5);
+    }
+    
+    scheduler() {
+        if (!this.isPlaying) return;
+        
+        const currentTime = this.ctx.currentTime;
+        const bar = Math.floor(this.step / 16);
+        const beat = this.step % 16;
+        const section = Math.floor(bar / 4) % 4;
+        
+        const time = currentTime + 0.1;
+        
+        // Choose patterns based on section
+        let kickPat = section < 2 ? this.kickPattern : this.kickPattern2;
+        let hihatPat = section < 2 ? this.hihatPattern : this.hihatPattern2;
+        
+        // Kick
+        if (kickPat[beat]) {
+            this.playKick(time);
+        }
+        
+        // Hi-hat
+        if (hihatPat[beat]) {
+            this.playHihat(time, beat === 14);
+        }
+        
+        // Snare on beats 4 and 12
+        if (this.snarePattern[beat] && section >= 1) {
+            this.playSnare(time);
+        }
+        
+        // Bass every bar on beat 0
+        if (beat === 0) {
+            const bassNote = this.bassNotes[bar % this.bassNotes.length];
+            this.playBass(time, bassNote);
+        }
+        
+        // Synth line
+        if (section >= 2 && this.synthPattern[beat]) {
+            const synthNote = this.synthNotes[(bar * 2 + Math.floor(beat / 4)) % this.synthNotes.length];
+            this.playSynth(time, synthNote);
+        }
+        
+        // Pad every 4 bars
+        if (this.step % 64 === 0 && section >= 1) {
+            this.playPad(time, [110, 138.59, 164.81], this.stepTime * 32);
+        }
+        
+        // Riser before drop
+        if (bar % 16 === 14 && beat === 0) {
+            this.playRiser(time, this.stepTime * 32);
+        }
+        
+        // Impact on drop
+        if (bar % 16 === 0 && bar > 0 && beat === 0) {
+            this.playImpact(time);
+        }
+        
+        // Filter movement
+        const filterMod = Math.sin(currentTime * 0.5) * 3000 + 10000;
+        this.masterFilter.frequency.setValueAtTime(filterMod, time);
+        
+        this.step++;
+        
+        setTimeout(() => this.scheduler(), this.stepTime * 1000);
+    }
+    
+    start() {
+        this.isPlaying = true;
+        this.scheduler();
+    }
+    
+    stop() {
+        this.isPlaying = false;
+    }
+}
+
+// ============================================================================
+// Scroller Text
+// ============================================================================
+
+const scrollerText = "    ★★★ CHROME SPHERES ★★★    A classic demoscene tribute    " +
+    "Realtime GPU raytracing with WebGL2    Procedural techno by Web Audio API    " +
+    "Greets to: Future Crew ★ Farbrausch ★ Conspiracy ★ Rgba ★ Elevated ★ Mercury ★ " +
+    "Fairlight ★ Haujobb ★ Andromeda Software Development ★★★    " +
+    "Code & Music: Generated with love    " +
+    "Remember the 90s demoscene? We're still here! ★★★    ";
+
+const scrollerEl = document.getElementById('scroller');
+let scrollPos = window.innerWidth;
+
+function updateScroller() {
+    scrollPos -= 3;
+    if (scrollPos < -scrollerEl.offsetWidth) {
+        scrollPos = window.innerWidth;
+    }
+    scrollerEl.style.transform = `translateX(${scrollPos}px)`;
+    
+    // Color cycling
+    const hue = (Date.now() * 0.05) % 360;
+    scrollerEl.style.textShadow = `0 0 20px hsl(${hue}, 100%, 50%), 0 0 40px hsl(${hue}, 100%, 50%)`;
+}
+scrollerEl.textContent = scrollerText;
+
+// ============================================================================
+// Visualizer
+// ============================================================================
+
+function drawVisualizer() {
+    if (!analyser) return;
+    
+    analyser.getByteFrequencyData(analyserData);
+    
+    visCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    visCtx.fillRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
+    
+    const barWidth = visualizerCanvas.width / analyserData.length * 2.5;
+    const heightScale = visualizerCanvas.height / 256;
+    
+    for (let i = 0; i < analyserData.length; i++) {
+        const barHeight = analyserData[i] * heightScale;
+        const hue = (i / analyserData.length * 120 + Date.now() * 0.1) % 360;
+        
+        visCtx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+        visCtx.fillRect(
+            i * barWidth,
+            visualizerCanvas.height - barHeight,
+            barWidth - 1,
+            barHeight
+        );
+    }
+    
+    // Update bass level for shader
+    let bass = 0;
+    for (let i = 0; i < 8; i++) {
+        bass += analyserData[i];
+    }
+    bassLevel = bass / (8 * 255);
+}
+
+// ============================================================================
+// Main Loop
+// ============================================================================
+
+let frameCount = 0;
+let lastFpsUpdate = 0;
+let synth;
+
+function render(time) {
+    const t = (time - startTime) / 1000;
+    
+    // Update FPS
+    frameCount++;
+    if (time - lastFpsUpdate > 500) {
+        document.getElementById('fps').textContent = Math.round(frameCount * 1000 / (time - lastFpsUpdate));
+        frameCount = 0;
+        lastFpsUpdate = time;
+    }
+    
+    // Decay kick level
+    kickLevel *= 0.9;
+    
+    // Draw visualizer
+    drawVisualizer();
+    
+    // Update scroller
+    updateScroller();
+    
+    // Render raytracing
+    gl.uniform1f(timeLoc, t);
+    gl.uniform2f(resolutionLoc, canvas.width, canvas.height);
+    gl.uniform1f(bassLoc, bassLevel);
+    gl.uniform1f(kickLoc, kickLevel);
+    
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    
+    requestAnimationFrame(render);
+}
+
+// ============================================================================
+// Start
+// ============================================================================
+
+startScreen.addEventListener('click', () => {
+    startScreen.style.display = 'none';
+    
+    // Initialize audio
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    synth = new TechnoSynth(audioCtx);
+    synth.start();
+    
+    startTime = performance.now();
+    requestAnimationFrame(render);
+});
+
+// Handle visibility change
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && synth) {
+        synth.stop();
+    } else if (!document.hidden && synth) {
+        synth.start();
+    }
+});
+
+    </script>
+</body>
+</html>
