@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MUSIQUE NON STOP - Kraftwerk Tribute</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #050505;
+            color: #f4f4f4;
+            font-family: 'Futura', 'Arial Narrow', sans-serif;
+            overflow: hidden;
+        }
+        canvas { display: block; }
+        #hud {
+            pointer-events: none;
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 32px 40px;
+            mix-blend-mode: screen;
+            z-index: 10;
+        }
+        #hud .row {
+            display: flex;
+            justify-content: space-between;
+            text-transform: uppercase;
+            letter-spacing: 0.4em;
+            font-size: clamp(0.7rem, 2vw, 1rem);
+            color: rgba(255, 220, 220, 0.6);
+        }
+        #hud .center {
+            text-align: center;
+            color: rgba(255, 230, 230, 0.7);
+            letter-spacing: 1.2em;
+            font-size: clamp(1.6rem, 5vw, 3rem);
+        }
+        #startScreen {
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle at 50% 50%, rgba(15, 0, 0, 0.94), rgba(5, 0, 0, 0.98));
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 22px;
+            cursor: pointer;
+            z-index: 20;
+        }
+        #startScreen h1 {
+            letter-spacing: 1em;
+            font-size: clamp(2.2rem, 8vw, 4.8rem);
+            color: #ff2a2a;
+        }
+        #startScreen p {
+            text-transform: uppercase;
+            letter-spacing: 0.5em;
+            color: rgba(255, 220, 220, 0.55);
+            font-size: clamp(0.7rem, 2vw, 1rem);
+            animation: blink 1.4s ease-in-out infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 0.9; }
+            50% { opacity: 0.3; }
+        }
+        #ticker {
+            position: fixed;
+            bottom: 20px;
+            left: 0;
+            width: 100%;
+            z-index: 12;
+            overflow: hidden;
+            pointer-events: none;
+        }
+        #ticker span {
+            display: inline-block;
+            width: max-content;
+            padding-left: 100vw;
+            font-size: clamp(0.9rem, 3vw, 1.4rem);
+            letter-spacing: 0.55em;
+            color: rgba(255, 230, 230, 0.55);
+        }
+    </style>
+</head>
+<body>
+    <div id="startScreen">
+        <h1>MUSIQUE NON STOP</h1>
+        <p>Click to switch on</p>
+    </div>
+    <canvas id="stage"></canvas>
+    <div id="hud">
+        <div class="row">
+            <span>DUESSELDORF</span>
+            <span>120 BPM</span>
+            <span>SEQUENCED 2025</span>
+        </div>
+        <div class="center">ROBOTER · COMPUTER · MUSIK</div>
+        <div class="row">
+            <span>WORDS</span>
+            <span>MUSIC</span>
+            <span>NON</span>
+            <span>STOP</span>
+        </div>
+    </div>
+    <div id="ticker"><span>MUSIQUE NON STOP · AUTOBHN · COMPUTER LIEBE · TECHNO POP · DIE ROBOTER · NUMBERS · POCKET CALCULATOR ·</span></div>
+
+    <script>
+const startScreen = document.getElementById('startScreen');
+const canvas = document.getElementById('stage');
+const gl = canvas.getContext('webgl2', { alpha: false });
+const tickerSpan = document.querySelector('#ticker span');
+
+if (!gl) {
+    alert('WebGL2 is required for this demo.');
+}
+
+tickerSpan.animate([
+    { transform: 'translate3d(0,0,0)' },
+    { transform: 'translate3d(-100%,0,0)' }
+], {
+    duration: 30000,
+    iterations: Infinity,
+    easing: 'linear'
+});
+
+function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    canvas.style.width = '100vw';
+    canvas.style.height = '100vh';
+    gl.viewport(0, 0, canvas.width, canvas.height);
+}
+window.addEventListener('resize', resize);
+resize();
+
+const vsSource = `#version 300 es\nlayout(location=0) in vec2 aPos;\nout vec2 vUV;\nvoid main(){\n    vUV = aPos * 0.5 + 0.5;\n    gl_Position = vec4(aPos,0.0,1.0);\n}`;
+
+const fsSource = `#version 300 es\nprecision highp float;\nin vec2 vUV;\nout vec4 fragColor;\nuniform float uTime;\nuniform vec2 uResolution;\n\nfloat hash(vec3 p){\n    p = fract(p * 0.3183099 + vec3(0.71,0.113,0.419));\n    p += dot(p, p.yzx + 19.19);\n    return fract((p.x + p.y) * p.z);\n}\n\nfloat noise(vec3 p){\n    vec3 i = floor(p);\n    vec3 f = fract(p);\n    float n = mix(mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),\n                      mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),\n                  mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),\n                      mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);\n    return n;\n}\n\nfloat scanLine(float y, float t){\n    float s = sin(y * 600.0 + t * 25.0) * 0.5 + 0.5;\n    return pow(s, 12.0);
+}\n
+mat2 rot(float a){
+    float s = sin(a), c = cos(a);
+    return mat2(c,-s,s,c);
+}
+
+void main(){
+    vec2 uv = vUV;
+    vec2 res = uResolution;
+    vec2 p = (uv - 0.5) * vec2(res.x/res.y, 1.0);
+    float t = uTime * 0.5;
+
+    // Stereo columns referencing band silhouettes
+    vec2 gridUV = abs(p);
+    float columns = smoothstep(0.05, 0.035, abs(gridUV.x - 0.45));
+    columns += smoothstep(0.05, 0.03, abs(gridUV.x - 0.15));
+    columns += smoothstep(0.05, 0.03, abs(gridUV.x + 0.15));
+    columns += smoothstep(0.05, 0.035, abs(gridUV.x + 0.45));
+    columns = clamp(columns, 0.0, 1.0);
+
+    // Digital oscilloscope wireframe
+    vec2 osc = p;
+    osc.x += sin(t * 0.6) * 0.2;
+    float waveform = sin(osc.x * 15.0 + t * 4.0) * exp(-abs(osc.y) * 6.0);
+    float wire = smoothstep(0.18, 0.0, abs(osc.y - waveform * 0.15));
+
+    // Rotating numeric grid referencing "Numbers"
+    vec2 grid = p * rot(t * 0.1);
+    vec2 cell = fract(grid * 4.0) - 0.5;
+    float digit = smoothstep(0.22, 0.2, max(abs(cell.x), abs(cell.y)));
+
+    // Pulsing red background with noise shimmer
+    float base = 0.08 + 0.05 * sin(t * 2.0);
+    float shimmer = noise(vec3(p * 5.0, t * 0.5));
+    vec3 color = vec3(0.18, 0.02, 0.02) + shimmer * 0.05;
+
+    vec3 neon = vec3(0.9, 0.1, 0.1);
+    vec3 wireCol = vec3(1.0, 0.35, 0.35);
+    vec3 digitsCol = vec3(0.8, 0.08, 0.12);
+
+    color += neon * columns * (0.4 + 0.3 * sin(t * 3.0));
+    color += wireCol * wire;
+    color += digitsCol * digit * (0.3 + 0.7 * scanLine(uv.y, t));
+
+    // CRT bleed
+    color.r += 0.03 * sin(uv.y * 300.0 + t * 8.0);
+    color.b += 0.02 * sin(uv.x * 190.0 - t * 6.0);
+
+    color = pow(color, vec3(0.85));
+    fragColor = vec4(color, 1.0);
+}`;
+
+function compileShader(type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(shader));
+    }
+    return shader;
+}
+
+function createProgram(vsSource, fsSource) {
+    const vs = compileShader(gl.VERTEX_SHADER, vsSource);
+    const fs = compileShader(gl.FRAGMENT_SHADER, fsSource);
+    const program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error(gl.getProgramInfoLog(program));
+    }
+    return program;
+}
+
+const program = createProgram(vsSource, fsSource);
+const quad = gl.createBuffer();
+const quadVerts = new Float32Array([-1,-1, 1,-1, -1,1, 1,1]);
+gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+gl.bufferData(gl.ARRAY_BUFFER, quadVerts, gl.STATIC_DRAW);
+const aPosLoc = 0;
+const uTimeLoc = gl.getUniformLocation(program, 'uTime');
+const uResLoc = gl.getUniformLocation(program, 'uResolution');
+
+let audioCtx;
+let analyser;
+let analyserData;
+let sequencer;
+let startTime = 0;
+
+class NonStopSequencer {
+    constructor(ctx) {
+        this.ctx = ctx;
+        this.master = ctx.createGain();
+        this.master.gain.value = 0.75;
+        this.compressor = ctx.createDynamicsCompressor();
+        this.compressor.threshold.value = -22;
+        this.compressor.ratio.value = 8;
+        this.compressor.attack.value = 0.002;
+        this.compressor.release.value = 0.25;
+        this.master.connect(this.compressor);
+        this.compressor.connect(ctx.destination);
+
+        analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        analyserData = new Uint8Array(analyser.frequencyBinCount);
+        this.master.connect(analyser);
+
+        this.bpm = 120;
+        this.stepTime = 60 / this.bpm / 4;
+        this.step = 0;
+        this.running = false;
+    }
+
+    trigKick(time) {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sine';
+        const gain = this.ctx.createGain();
+        osc.frequency.setValueAtTime(90, time);
+        osc.frequency.exponentialRampToValueAtTime(35, time + 0.12);
+        gain.gain.setValueAtTime(1.3, time);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.4);
+        osc.connect(gain);
+        gain.connect(this.master);
+        osc.start(time);
+        osc.stop(time + 0.4);
+    }
+
+    trigClap(time) {
+        const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.25, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        const band = this.ctx.createBiquadFilter();
+        band.type = 'bandpass';
+        band.frequency.value = 1500;
+        band.Q.value = 2;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.5, time);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.2);
+        noise.connect(band);
+        band.connect(gain);
+        gain.connect(this.master);
+        noise.start(time);
+        noise.stop(time + 0.2);
+    }
+
+    trigHiHat(time, open=false) {
+        const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * (open ? 0.4 : 0.12), this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random()*2 - 1;
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        const highpass = this.ctx.createBiquadFilter();
+        highpass.type = 'highpass';
+        highpass.frequency.value = 9000;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.2, time);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + (open ? 0.35 : 0.08));
+        noise.connect(highpass);
+        highpass.connect(gain);
+        gain.connect(this.master);
+        noise.start(time);
+        noise.stop(time + (open ? 0.35 : 0.12));
+    }
+
+    trigBass(time) {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'square';
+        osc.frequency.value = 110;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(360, time);
+        filter.frequency.exponentialRampToValueAtTime(180, time + this.stepTime * 2);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.4, time + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + this.stepTime * 2);
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.master);
+        osc.start(time);
+        osc.stop(time + this.stepTime * 2);
+    }
+
+    trigVocoder(time) {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sawtooth';
+        const gain = this.ctx.createGain();
+        osc.frequency.value = 440;
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.15, time + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + 1.2);
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 1000;
+        filter.Q.value = 4;
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.master);
+        osc.start(time);
+        osc.stop(time + 1.2);
+    }
+
+    schedule() {
+        if (!this.running) return;
+        const currentTime = this.ctx.currentTime;
+        const ahead = 0.1;
+        while (this.step * this.stepTime < currentTime + ahead) {
+            const when = this.step * this.stepTime;
+            const idx = this.step % 16;
+            if (idx % 4 === 0) this.trigKick(when);
+            if (idx % 4 === 2) this.trigClap(when);
+            if (idx % 2 === 1) this.trigHiHat(when, idx % 8 === 5);
+            if (idx % 8 === 0) this.trigBass(when);
+            if (idx % 16 === 8) this.trigVocoder(when);
+            this.step++;
+        }
+        setTimeout(() => this.schedule(), 25);
+    }
+
+    start() {
+        if (this.running) return;
+        this.running = true;
+        this.step = Math.floor(this.ctx.currentTime / this.stepTime);
+        this.schedule();
+    }
+
+    stop() {
+        this.running = false;
+    }
+}
+
+let animationId;
+
+function render(time) {
+    const seconds = (time - startTime) * 0.001;
+    gl.useProgram(program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    gl.enableVertexAttribArray(aPosLoc);
+    gl.vertexAttribPointer(aPosLoc, 2, gl.FLOAT, false, 0, 0);
+    gl.uniform1f(uTimeLoc, seconds);
+    gl.uniform2f(uResLoc, canvas.width, canvas.height);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    animationId = requestAnimationFrame(render);
+}
+
+startScreen.addEventListener('click', () => {
+    startScreen.style.display = 'none';
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        sequencer = new NonStopSequencer(audioCtx);
+        sequencer.start();
+    }
+    startTime = performance.now();
+    render(startTime);
+});
+
+window.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        if (sequencer) sequencer.stop();
+        if (animationId) cancelAnimationFrame(animationId);
+    } else {
+        if (sequencer) sequencer.start();
+        startTime = performance.now();
+        animationId = requestAnimationFrame(render);
+    }
+});
+    </script>
+</body>
+</html>
