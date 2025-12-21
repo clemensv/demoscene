@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BERLIN RHYTHM - Tresor Tribute</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #050505;
+            color: #eee;
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            overflow: hidden;
+        }
+        canvas { display: block; }
+        #overlay {
+            pointer-events: none;
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 28px 36px;
+            z-index: 10;
+            mix-blend-mode: screen;
+        }
+        #overlay .top {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            letter-spacing: 0.4em;
+            text-transform: uppercase;
+            color: rgba(180, 200, 220, 0.65);
+        }
+        #overlay .center {
+            text-align: center;
+            letter-spacing: 0.6em;
+            font-size: clamp(1.6rem, 4vw, 2.8rem);
+            text-transform: uppercase;
+            color: rgba(200, 200, 200, 0.6);
+        }
+        #overlay .bottom {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            letter-spacing: 0.4em;
+            color: rgba(150, 170, 190, 0.5);
+        }
+        #startScreen {
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.98));
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            z-index: 20;
+            cursor: pointer;
+        }
+        #startScreen h1 {
+            font-size: clamp(2.5rem, 8vw, 5rem);
+            letter-spacing: 0.5em;
+            text-transform: uppercase;
+            color: #fff;
+        }
+        #startScreen p {
+            font-size: 0.9rem;
+            letter-spacing: 0.4em;
+            text-transform: uppercase;
+            color: rgba(200, 200, 200, 0.6);
+            animation: blink 1.2s ease-in-out infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.2; }
+        }
+        #ticker {
+            position: fixed;
+            bottom: 30px;
+            left: 0;
+            width: 100%;
+            font-size: clamp(1rem, 3.5vw, 1.6rem);
+            font-weight: 600;
+            letter-spacing: 0.35em;
+            text-transform: uppercase;
+            color: rgba(180, 220, 255, 0.7);
+            white-space: nowrap;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 15;
+        }
+        #ticker span {
+            display: inline-block;
+            padding-left: 100vw;
+        }
+    </style>
+</head>
+<body>
+    <div id="startScreen">
+        <h1>BERLIN RHYTHM</h1>
+        <p>Click to enter the bunker</p>
+    </div>
+    <canvas id="stage"></canvas>
+    <div id="overlay">
+        <div class="top">
+            <span>KREUZBERG 2025</span>
+            <span>132 BPM</span>
+            <span>LIVE // MODULAR</span>
+        </div>
+        <div class="center">UNITY · BASS · CULTURE</div>
+        <div class="bottom">
+            <span>RAW SIGNAL</span>
+            <span>STROBE MODE</span>
+            <span>RESPECT THE FLOOR</span>
+        </div>
+    </div>
+    <div id="ticker"><span>BERLIN TECHNOPOLIS · TRESOR · BERGHAIN · WATERGATE · S~BHN RATTLES · KEEP IT UNDERGROUND · LOVE PARADE MEMORY · WE ARE ONE CREW ·</span></div>
+
+    <script>
+const startScreen = document.getElementById('startScreen');
+const canvas = document.getElementById('stage');
+const gl = canvas.getContext('webgl2');
+const ticker = document.querySelector('#ticker span');
+
+if (!gl) {
+    alert('WebGL2 not available on this device.');
+}
+
+ticker.animate([
+    { transform: 'translate3d(0,0,0)' },
+    { transform: 'translate3d(-100%,0,0)' }
+], {
+    duration: 36000,
+    iterations: Infinity,
+    easing: 'linear'
+});
+
+function resize() {
+    canvas.width = window.innerWidth * window.devicePixelRatio;
+    canvas.height = window.innerHeight * window.devicePixelRatio;
+    canvas.style.width = '100vw';
+    canvas.style.height = '100vh';
+    gl.viewport(0, 0, canvas.width, canvas.height);
+}
+window.addEventListener('resize', resize);
+resize();
+
+const vsSource = `#version 300 es\nin vec2 aPos;\nout vec2 vUV;\nvoid main(){\n    vUV = aPos * 0.5 + 0.5;\n    gl_Position = vec4(aPos,0.0,1.0);\n}`;
+
+const fsSource = `#version 300 es\nprecision highp float;\nin vec2 vUV;\nout vec4 fragColor;\nuniform float uTime;\nuniform vec2 uResolution;\n\nfloat hash(vec2 p){\n    return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453);\n}\n\nfloat noise(vec2 p){\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    float a = hash(i);\n    float b = hash(i + vec2(1.0,0.0));\n    float c = hash(i + vec2(0.0,1.0));\n    float d = hash(i + vec2(1.0,1.0));\n    vec2 u = f * f * (3.0 - 2.0*f);\n    return mix(a,b,u.x) + (c - a)*u.y*(1.0 - u.x) + (d - b)*u.x*u.y;\n}\n\nfloat linePattern(vec2 uv, float freq, float width){\n    float l = abs(sin(uv.y * freq + sin(uv.x * 0.6)));\n    return smoothstep(width, 0.0, l);\n}\n\nvoid main(){\n    vec2 uv = vUV;\n    vec2 p = (uv - 0.5) * vec2(uResolution.x/uResolution.y, 1.0);\n    float t = uTime;\n\n    // Deep metro grid background\n    float grid = abs(fract(p.x*6.0) - 0.5) + abs(fract((p.y + sin(t*0.1)*0.4)*10.0) - 0.5);\n    grid = pow(grid, 1.4);\n\n    // Pulsing strobes\n    float strobe = smoothstep(0.0, 0.6, sin(t*4.0) * 0.5 + 0.5);\n\n    // Industrial fog using noise
+    float fog = noise(p * 3.0 + vec2(t * 0.1, -t*0.12));
+    fog += noise(p * 7.0 - vec2(t*0.3, t*0.23)) * 0.3;
+    fog = pow(fog, 3.0);
+
+    // Moving projected light bars
+    float move = fract(uv.x + t * 0.05);
+    float clubBar = smoothstep(0.0, 0.02, move) * smoothstep(0.08, 0.05, move);
+
+    // Scanning laser referencing S-Bahn lights
+    float laser = linePattern(vec2(p.x, p.y + t * 2.0), 20.0, 0.08);
+
+    // Combine
+    vec3 base = vec3(0.02, 0.02, 0.04);
+    vec3 industrial = mix(vec3(0.05, 0.07, 0.1), vec3(0.1, 0.12, 0.2), fog);
+    vec3 strobes = mix(vec3(0.0), vec3(0.8, 0.9, 1.0), strobe * clubBar);
+    vec3 lasers = vec3(0.4, 0.8, 1.0) * laser * 0.6;
+
+    float beat = sin(t * 2.0) * 0.5 + 0.5;
+    vec3 mixCol = base + industrial + strobes + lasers;
+    mixCol += vec3(beat * 0.1);
+
+    // Vignette
+    float vignette = smoothstep(0.95, 0.3, length(p));
+    mixCol *= vignette;
+
+    fragColor = vec4(pow(mixCol, vec3(0.85)), 1.0);
+}`;
+
+function compileShader(type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(shader));
+    }
+    return shader;
+}
+
+function createProgram(vsSrc, fsSrc) {
+    const vs = compileShader(gl.VERTEX_SHADER, vsSrc);
+    const fs = compileShader(gl.FRAGMENT_SHADER, fsSrc);
+    const program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error(gl.getProgramInfoLog(program));
+    }
+    return program;
+}
+
+const program = createProgram(vsSource, fsSource);
+const buffer = gl.createBuffer();
+const positions = new Float32Array([-1,-1, 1,-1, -1,1, 1,1]);
+gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(program, 'aPos');
+const uTime = gl.getUniformLocation(program, 'uTime');
+const uResolution = gl.getUniformLocation(program, 'uResolution');
+
+let audioCtx, analyser, analyserData;
+let techno;
+let startTime = 0;
+
+class BerlinGroove {
+    constructor(ctx) {
+        this.ctx = ctx;
+        this.master = ctx.createGain();
+        this.master.gain.value = 0.85;
+
+        this.compressor = ctx.createDynamicsCompressor();
+        this.compressor.threshold.value = -24;
+        this.compressor.ratio.value = 6;
+        this.compressor.attack.value = 0.003;
+        this.compressor.release.value = 0.2;
+
+        this.master.connect(this.compressor);
+        this.compressor.connect(ctx.destination);
+
+        analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyserData = new Uint8Array(analyser.frequencyBinCount);
+        this.master.connect(analyser);
+
+        this.bpm = 132;
+        this.stepTime = 60 / this.bpm / 4;
+        this.step = 0;
+        this.running = false;
+    }
+
+    triggerKick(time) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(110, time);
+        osc.frequency.exponentialRampToValueAtTime(36, time + 0.12);
+        gain.gain.setValueAtTime(1.4, time);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.4);
+        osc.connect(gain);
+        gain.connect(this.master);
+        osc.start(time);
+        osc.stop(time + 0.5);
+    }
+
+    triggerHat(time) {
+        const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.15, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random()*2-1;
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.value = 7000;
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.25, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.master);
+        noise.start(time);
+        noise.stop(time + 0.12);
+    }
+
+    triggerBass(time) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.value = 55;
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.45, time + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, time + this.stepTime * 2);
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(300, time);
+        filter.frequency.exponentialRampToValueAtTime(120, time + this.stepTime * 2);
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.master);
+        osc.start(time);
+        osc.stop(time + this.stepTime * 2);
+    }
+
+    triggerChord(time) {
+        const freqs = [220, 277, 329];
+        freqs.forEach((f, idx) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.value = f;
+            gain.gain.setValueAtTime(0.0, time);
+            gain.gain.linearRampToValueAtTime(0.06, time + 0.1 + idx*0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, time + 2.5);
+            const filter = this.ctx.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.value = 600 + idx * 200;
+            filter.Q.value = 3;
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.master);
+            osc.start(time);
+            osc.stop(time + 3);
+        });
+    }
+
+    schedule() {
+        if (!this.running) return;
+        const currentTime = this.ctx.currentTime;
+        const scheduleAhead = 0.1;
+        while (this.step * this.stepTime < currentTime + scheduleAhead) {
+            const when = this.step * this.stepTime;
+            const idx = this.step % 16;
+            if (idx % 4 === 0) this.triggerKick(when);
+            if (idx % 2 === 1) this.triggerHat(when);
+            if (idx % 4 === 0) this.triggerBass(when);
+            if (idx === 0) this.triggerChord(when);
+            this.step++;
+        }
+        setTimeout(() => this.schedule(), 25);
+    }
+
+    start() {
+        if (this.running) return;
+        this.running = true;
+        this.step = Math.floor(this.ctx.currentTime / this.stepTime);
+        this.schedule();
+    }
+
+    stop() {
+        this.running = false;
+    }
+}
+
+let animationId;
+
+function render(time) {
+    const t = (time - startTime) * 0.001;
+    gl.useProgram(program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+    gl.uniform1f(uTime, t);
+    gl.uniform2f(uResolution, canvas.width, canvas.height);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    animationId = requestAnimationFrame(render);
+}
+
+startScreen.addEventListener('click', async () => {
+    startScreen.style.display = 'none';
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        techno = new BerlinGroove(audioCtx);
+        techno.start();
+    }
+    startTime = performance.now();
+    render(startTime);
+});
+
+window.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        if (techno) techno.stop();
+        if (animationId) cancelAnimationFrame(animationId);
+    } else {
+        if (techno) techno.start();
+        startTime = performance.now();
+        animationId = requestAnimationFrame(render);
+    }
+});
+    </script>
+</body>
+</html>
