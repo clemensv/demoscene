@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demoscene Tribute - WebGL Demos</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Animated background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(ellipse at 20% 80%, rgba(120, 0, 255, 0.15) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(0, 255, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(255, 0, 128, 0.05) 0%, transparent 70%);
+            z-index: -1;
+            animation: bgPulse 10s ease-in-out infinite;
+        }
+
+        @keyframes bgPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* Scanlines overlay */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.1) 0px,
+                rgba(0, 0, 0, 0.1) 1px,
+                transparent 1px,
+                transparent 3px
+            );
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        header {
+            text-align: center;
+            padding: 60px 20px;
+            position: relative;
+        }
+
+        h1 {
+            font-size: clamp(2rem, 8vw, 5rem);
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            background: linear-gradient(90deg, #0ff, #f0f, #ff0, #0ff);
+            background-size: 300% 100%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: gradientShift 5s linear infinite;
+            text-shadow: none;
+            filter: drop-shadow(0 0 30px rgba(0, 255, 255, 0.5));
+        }
+
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 300% 50%; }
+        }
+
+        .subtitle {
+            font-size: 1.2rem;
+            color: #888;
+            margin-top: 20px;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+        }
+
+        .intro {
+            max-width: 800px;
+            margin: 0 auto 60px;
+            padding: 0 20px;
+            text-align: center;
+            color: #aaa;
+            line-height: 1.8;
+        }
+
+        .intro p {
+            margin-bottom: 20px;
+        }
+
+        .demos-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .demo-card {
+            background: linear-gradient(135deg, rgba(20, 20, 40, 0.8), rgba(10, 10, 20, 0.9));
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            border-radius: 10px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .demo-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .demo-card:hover::before {
+            left: 100%;
+        }
+
+        .demo-card:hover {
+            border-color: rgba(0, 255, 255, 0.6);
+            transform: translateY(-5px);
+            box-shadow: 
+                0 10px 40px rgba(0, 255, 255, 0.2),
+                0 0 60px rgba(255, 0, 255, 0.1);
+        }
+
+        .demo-preview {
+            width: 100%;
+            height: 200px;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .demo-preview canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .demo-info {
+            padding: 25px;
+        }
+
+        .demo-title {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+            color: #0ff;
+            text-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+        }
+
+        .demo-description {
+            color: #888;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .demo-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .tag {
+            background: rgba(255, 0, 255, 0.2);
+            border: 1px solid rgba(255, 0, 255, 0.4);
+            color: #f0f;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .launch-btn {
+            display: inline-block;
+            background: linear-gradient(90deg, #0ff, #08f);
+            color: #000;
+            text-decoration: none;
+            padding: 12px 30px;
+            border-radius: 5px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .launch-btn::before {
+            content: '▶ ';
+        }
+
+        .launch-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.5);
+        }
+
+        .coming-soon {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .coming-soon .launch-btn {
+            background: #333;
+            color: #666;
+        }
+
+        footer {
+            text-align: center;
+            padding: 60px 20px;
+            color: #444;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            margin-top: 60px;
+        }
+
+        footer a {
+            color: #0ff;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        .greetings {
+            max-width: 800px;
+            margin: 0 auto 20px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        /* Mini preview animations */
+        .preview-plasma {
+            background: linear-gradient(45deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+            background-size: 400% 400%;
+            animation: plasmaPreview 3s ease infinite;
+        }
+
+        @keyframes plasmaPreview {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .preview-text {
+            font-size: 3rem;
+            animation: previewPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes previewPulse {
+            0%, 100% { opacity: 0.5; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.1); }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Demoscene Tribute</h1>
+        <p class="subtitle">WebGL Experiments Inspired by the Amiga Era</p>
+    </header>
+
+    <section class="intro">
+        <p>
+            Welcome to a collection of real-time graphics demos paying homage to the legendary 
+            <strong>demoscene</strong> of the 1980s and 1990s. These experiments recreate classic 
+            effects using modern WebGL2 and Web Audio APIs.
+        </p>
+        <p>
+            The demoscene was an underground computer art subculture that pushed hardware to its 
+            absolute limits, creating stunning audiovisual experiences on machines like the 
+            <strong>Commodore Amiga</strong>, <strong>Atari ST</strong>, and <strong>C64</strong>.
+        </p>
+    </section>
+
+    <section class="demos-grid">
+        <!-- Demo 1: Chromium Dreams -->
+        <article class="demo-card">
+            <div class="demo-preview preview-plasma">
+                <span class="preview-text">🌈</span>
+            </div>
+            <div class="demo-info">
+                <h2 class="demo-title">Chromium Dreams</h2>
+                <p class="demo-description">
+                    A multi-part demo featuring 8 classic effects: copper bars, plasma, starfield, 
+                    tunnel, metaballs, vector balls, fractal zoom, and raymarched infinite forms. 
+                    Includes procedural chiptune music and sine-wave scroller.
+                </p>
+                <div class="demo-tags">
+                    <span class="tag">WebGL2</span>
+                    <span class="tag">GLSL</span>
+                    <span class="tag">Web Audio</span>
+                    <span class="tag">Raymarching</span>
+                </div>
+                <a href="demo.html" class="launch-btn">Launch Demo</a>
+            </div>
+        </article>
+
+        <!-- Placeholder for future demos -->
+        <article class="demo-card coming-soon">
+            <div class="demo-preview" style="background: linear-gradient(135deg, #1a1a2e, #0a0a15);">
+                <span class="preview-text">🔮</span>
+            </div>
+            <div class="demo-info">
+                <h2 class="demo-title">Coming Soon</h2>
+                <p class="demo-description">
+                    More demos are in the works! Future experiments may include: 3D vector graphics, 
+                    Amiga MOD player, shadebobs, morphing objects, and more classic effects.
+                </p>
+                <div class="demo-tags">
+                    <span class="tag">TBD</span>
+                </div>
+                <a href="#" class="launch-btn">Coming Soon</a>
+            </div>
+        </article>
+    </section>
+
+    <footer>
+        <p class="greetings">
+            Greetings to: Sanity • The Black Lotus • Fairlight • Kefrens • Spaceballs • TRSI • 
+            Future Crew • Triton • Melon Dezign • Scoopex • and all the demosceners past and present!
+        </p>
+        <p>
+            Made with ❤️ and WebGL | 
+            <a href="https://github.com" target="_blank">View on GitHub</a>
+        </p>
+        <p style="margin-top: 10px; font-size: 0.8rem;">
+            The scene is not dead — it just evolved.
+        </p>
+    </footer>
+</body>
+</html>

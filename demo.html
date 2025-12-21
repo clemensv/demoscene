@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CHROMIUM DREAMS - A Demoscene Tribute</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            background: #000; 
+            overflow: hidden; 
+            font-family: 'Courier New', monospace;
+        }
+        canvas { display: block; }
+        #overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #scroller {
+            position: fixed;
+            bottom: 60px;
+            left: 0;
+            width: 100%;
+            font-size: 48px;
+            font-weight: bold;
+            color: #fff;
+            white-space: nowrap;
+            z-index: 20;
+            text-shadow: 0 0 20px #0ff, 0 0 40px #0ff, 0 0 60px #08f;
+            font-family: 'Arial Black', sans-serif;
+        }
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #0f0;
+            font-size: 14px;
+            z-index: 30;
+            text-shadow: 0 0 10px #0f0;
+        }
+        #startScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            cursor: pointer;
+        }
+        #startScreen h1 {
+            font-size: 64px;
+            color: #0ff;
+            text-shadow: 0 0 30px #0ff, 0 0 60px #08f;
+            margin-bottom: 20px;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        #startScreen p {
+            font-size: 24px;
+            color: #fff;
+            animation: blink 1s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+    </style>
+</head>
+<body>
+    <div id="startScreen">
+        <h1>CHROMIUM DREAMS</h1>
+        <p>[ CLICK TO START ]</p>
+    </div>
+    <canvas id="mainCanvas"></canvas>
+    <canvas id="overlay"></canvas>
+    <div id="scroller"></div>
+    <div id="info">FPS: <span id="fps">0</span></div>
+
+    <script>
+// ============================================================================
+// CHROMIUM DREAMS - A Modern Demoscene Tribute
+// Using WebGL2, Web Audio API, and modern JavaScript
+// ============================================================================
+
+const startScreen = document.getElementById('startScreen');
+const canvas = document.getElementById('mainCanvas');
+const overlay = document.getElementById('overlay');
+const gl = canvas.getContext('webgl2', { antialias: true, alpha: false });
+const ctx = overlay.getContext('2d');
+const scrollerDiv = document.getElementById('scroller');
+const fpsSpan = document.getElementById('fps');
+
+let audioCtx, analyser, audioData;
+let startTime = 0;
+let lastFrameTime = 0;
+let frameCount = 0;
+let currentScene = 0;
+
+// Scroll text - classic demoscene style
+const scrollText = "        WELCOME TO CHROMIUM DREAMS...   " +
+    "GREETINGS TO ALL THE OLD-SCHOOL DEMOSCENERS OUT THERE!   " +
+    "THIS DEMO IS A TRIBUTE TO THE LEGENDARY AMIGA SCENE...   " +
+    "REMEMBER THE COPPER BARS? THE PLASMA EFFECTS? THE VECTOR BALLS?   " +
+    "WE'RE BRINGING THEM BACK WITH WEBGL2 AND MODERN SHADERS!   " +
+    "RESPECT TO: SANITY - THE BLACK LOTUS - FAIRLIGHT - KEFRENS - SPACEBALLS - TRSI   " +
+    "CODED WITH LOVE IN 2024...   THE SCENE IS NOT DEAD - IT JUST EVOLVED!   " +
+    "PRESS SPACE TO SKIP SCENES...         ";
+
+let scrollPos = 0;
+
+// ============================================================================
+// SHADER PROGRAMS
+// ============================================================================
+
+// Vertex shader for fullscreen quad
+const vsQuad = `#version 300 es
+in vec2 aPosition;
+out vec2 vUv;
+void main() {
+    vUv = aPosition * 0.5 + 0.5;
+    gl_Position = vec4(aPosition, 0.0, 1.0);
+}`;
+
+// Fragment shader: Plasma effect (classic demoscene)
+const fsPlasma = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform float uTime;
+uniform vec2 uResolution;
+
+void main() {
+    vec2 uv = vUv * 2.0 - 1.0;
+    uv.x *= uResolution.x / uResolution.y;
+    
+    float t = uTime * 0.5;
+    
+    float v1 = sin(uv.x * 5.0 + t);
+    float v2 = sin(5.0 * (uv.x * sin(t * 0.5) + uv.y * cos(t * 0.3)) + t);
+    float v3 = sin(sqrt(100.0 * ((uv.x + 0.5 * sin(t * 0.2)) * (uv.x + 0.5 * sin(t * 0.2)) + 
+                                  (uv.y + 0.5 * cos(t * 0.3)) * (uv.y + 0.5 * cos(t * 0.3)))) + t);
+    float v4 = sin(sqrt(50.0 * (uv.x * uv.x + uv.y * uv.y)) + t);
+    
+    float v = (v1 + v2 + v3 + v4) * 0.25;
+    
+    vec3 col;
+    col.r = sin(v * 3.14159 + t) * 0.5 + 0.5;
+    col.g = sin(v * 3.14159 + t + 2.094) * 0.5 + 0.5;
+    col.b = sin(v * 3.14159 + t + 4.188) * 0.5 + 0.5;
+    
+    fragColor = vec4(col, 1.0);
+}`;
+
+// Fragment shader: Tunnel effect
+const fsTunnel = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform float uTime;
+uniform vec2 uResolution;
+
+void main() {
+    vec2 uv = vUv * 2.0 - 1.0;
+    uv.x *= uResolution.x / uResolution.y;
+    
+    float t = uTime * 0.8;
+    
+    // Add some wobble
+    uv.x += sin(uv.y * 3.0 + t) * 0.1;
+    uv.y += cos(uv.x * 3.0 + t * 0.7) * 0.1;
+    
+    float angle = atan(uv.y, uv.x);
+    float radius = length(uv);
+    
+    // Texture coordinates for the tunnel
+    float texU = angle / 3.14159;
+    float texV = 1.0 / radius + t * 2.0;
+    
+    // Create checker pattern
+    float checker = mod(floor(texU * 8.0) + floor(texV * 8.0), 2.0);
+    
+    // Color based on depth and angle
+    vec3 col1 = vec3(0.0, 0.8, 1.0);
+    vec3 col2 = vec3(1.0, 0.2, 0.5);
+    vec3 col = mix(col1, col2, checker);
+    
+    // Depth fog
+    float fog = 1.0 - smoothstep(0.0, 2.0, radius);
+    col *= fog;
+    
+    // Add glow at center
+    col += vec3(0.2, 0.5, 1.0) * (1.0 - smoothstep(0.0, 0.3, radius));
+    
+    fragColor = vec4(col, 1.0);
+}`;
+
+// Fragment shader: Metaballs / Blobs
+const fsMetaballs = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform float uTime;
+uniform vec2 uResolution;
+
+float metaball(vec2 uv, vec2 pos, float r) {
+    return r / length(uv - pos);
+}
+
+void main() {
+    vec2 uv = vUv * 2.0 - 1.0;
+    uv.x *= uResolution.x / uResolution.y;
+    
+    float t = uTime;
+    
+    float v = 0.0;
+    v += metaball(uv, vec2(sin(t * 1.1) * 0.6, cos(t * 0.9) * 0.6), 0.15);
+    v += metaball(uv, vec2(sin(t * 0.8 + 1.0) * 0.7, cos(t * 1.2 + 2.0) * 0.5), 0.12);
+    v += metaball(uv, vec2(sin(t * 1.3 + 2.0) * 0.5, cos(t * 0.7 + 1.0) * 0.7), 0.18);
+    v += metaball(uv, vec2(sin(t * 0.9 + 3.0) * 0.8, cos(t * 1.1 + 3.0) * 0.4), 0.14);
+    v += metaball(uv, vec2(sin(t * 1.4 + 4.0) * 0.4, cos(t * 0.8 + 4.0) * 0.8), 0.16);
+    
+    vec3 col = vec3(0.0);
+    
+    if (v > 1.0) {
+        float edge = smoothstep(1.0, 1.1, v);
+        vec3 innerCol = vec3(0.1, 0.3, 0.8);
+        vec3 outerCol = vec3(0.0, 1.0, 0.8);
+        col = mix(outerCol, innerCol, edge);
+        
+        // Add specular-like highlight
+        col += vec3(1.0) * smoothstep(1.5, 2.0, v) * 0.5;
+    }
+    
+    // Glow effect
+    col += vec3(0.0, 0.3, 0.5) * smoothstep(1.0, 0.5, v) * 0.3;
+    
+    fragColor = vec4(col, 1.0);
+}`;
+
+// Fragment shader: Raymarched spheres (vector balls tribute)
+const fsVectorBalls = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform float uTime;
+uniform vec2 uResolution;
+
+float sdSphere(vec3 p, float r) {
+    return length(p) - r;
+}
+
+float scene(vec3 p) {
+    float t = uTime;
+    float d = 1e10;
+    
+    // Grid of spheres
+    for (int i = 0; i < 5; i++) {
+        for (int j = 0; j < 5; j++) {
+            float fi = float(i) - 2.0;
+            float fj = float(j) - 2.0;
+            
+            vec3 spherePos = vec3(
+                fi * 1.2 + sin(t + fi * 0.5) * 0.3,
+                fj * 1.2 + cos(t * 0.8 + fj * 0.5) * 0.3,
+                sin(t * 0.5 + fi + fj) * 2.0
+            );
+            
+            d = min(d, sdSphere(p - spherePos, 0.4));
+        }
+    }
+    
+    return d;
+}
+
+vec3 getNormal(vec3 p) {
+    vec2 e = vec2(0.001, 0.0);
+    return normalize(vec3(
+        scene(p + e.xyy) - scene(p - e.xyy),
+        scene(p + e.yxy) - scene(p - e.yxy),
+        scene(p + e.yyx) - scene(p - e.yyx)
+    ));
+}
+
+void main() {
+    vec2 uv = vUv * 2.0 - 1.0;
+    uv.x *= uResolution.x / uResolution.y;
+    
+    // Camera
+    vec3 ro = vec3(0.0, 0.0, -8.0);
+    vec3 rd = normalize(vec3(uv, 1.5));
+    
+    // Rotate camera
+    float t = uTime * 0.3;
+    mat2 rot = mat2(cos(t), -sin(t), sin(t), cos(t));
+    ro.xz = rot * ro.xz;
+    rd.xz = rot * rd.xz;
+    
+    // Raymarching
+    float d = 0.0;
+    vec3 p;
+    bool hit = false;
+    
+    for (int i = 0; i < 64; i++) {
+        p = ro + rd * d;
+        float dist = scene(p);
+        if (dist < 0.001) {
+            hit = true;
+            break;
+        }
+        d += dist;
+        if (d > 50.0) break;
+    }
+    
+    vec3 col = vec3(0.0);
+    
+    if (hit) {
+        vec3 n = getNormal(p);
+        vec3 lightDir = normalize(vec3(1.0, 1.0, -1.0));
+        
+        // Chrome-like reflection
+        float diff = max(dot(n, lightDir), 0.0);
+        float spec = pow(max(dot(reflect(-lightDir, n), -rd), 0.0), 32.0);
+        
+        // Rainbow chrome effect
+        vec3 baseCol = vec3(0.2, 0.4, 0.8);
+        baseCol = mix(baseCol, vec3(1.0, 0.3, 0.5), (n.x + 1.0) * 0.5);
+        baseCol = mix(baseCol, vec3(0.3, 1.0, 0.5), (n.y + 1.0) * 0.5);
+        
+        col = baseCol * diff + vec3(1.0) * spec;
+        col += vec3(0.1, 0.15, 0.2); // Ambient
+    }
+    
+    // Background gradient
+    col = mix(vec3(0.02, 0.05, 0.1), col, hit ? 1.0 : 0.0);
+    col += vec3(0.05, 0.1, 0.2) * (1.0 - length(uv) * 0.5);
+    
+    fragColor = vec4(col, 1.0);
+}`;
+
+// Fragment shader: Copper bars effect
+const fsCopperBars = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform float uTime;
+uniform vec2 uResolution;
+
+vec3 hsv2rgb(vec3 c) {
+    vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+void main() {
+    vec2 uv = vUv;
+    float t = uTime;
+    
+    vec3 col = vec3(0.02, 0.02, 0.05);
+    
+    // Multiple copper bars with different frequencies
+    for (int i = 0; i < 12; i++) {
+        float fi = float(i);
+        float barY = 0.5 + sin(t * (0.8 + fi * 0.15) + fi * 0.7) * 0.35;
+        float barWidth = 0.03 + sin(t * 0.5 + fi) * 0.01;
+        
+        float dist = abs(uv.y - barY);
+        float bar = smoothstep(barWidth, 0.0, dist);
+        
+        // Gradient within the bar (classic copper look)
+        float gradient = 1.0 - abs((uv.y - barY) / barWidth);
+        gradient = pow(gradient, 0.5);
+        
+        // HSV color for rainbow effect
+        float hue = fract(fi * 0.08 + t * 0.1);
+        vec3 barCol = hsv2rgb(vec3(hue, 0.8, 1.0));
+        
+        // Add metallic sheen
+        barCol *= gradient;
+        barCol += vec3(1.0) * pow(gradient, 4.0) * 0.5;
+        
+        col += barCol * bar;
+    }
+    
+    // Scanlines
+    col *= 0.9 + 0.1 * sin(uv.y * uResolution.y * 2.0);
+    
+    // Vignette
+    col *= 1.0 - length(uv - 0.5) * 0.5;
+    
+    fragColor = vec4(col, 1.0);
+}`;
+
+// Fragment shader: Starfield
+const fsStarfield = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform float uTime;
+uniform vec2 uResolution;
+
+float hash(vec3 p) {
+    p = fract(p * 0.3183099 + 0.1);
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+void main() {
+    vec2 uv = vUv * 2.0 - 1.0;
+    uv.x *= uResolution.x / uResolution.y;
+    
+    float t = uTime;
+    vec3 col = vec3(0.0);
+    
+    // Multiple star layers at different speeds
+    for (int layer = 0; layer < 4; layer++) {
+        float fl = float(layer);
+        float speed = 0.5 + fl * 0.5;
+        float size = 0.003 - fl * 0.0005;
+        float brightness = 1.0 - fl * 0.2;
+        
+        for (int i = 0; i < 50; i++) {
+            float fi = float(i);
+            
+            // Star position
+            float x = fract(hash(vec3(fi, fl, 1.0)) + t * 0.02 * speed) * 4.0 - 2.0;
+            float y = hash(vec3(fi, fl, 2.0)) * 4.0 - 2.0;
+            float z = fract(hash(vec3(fi, fl, 3.0)) - t * speed * 0.3);
+            
+            // Perspective
+            float perspective = 1.0 / (z + 0.1);
+            vec2 starPos = vec2(x, y) * perspective * 0.3;
+            
+            float dist = length(uv - starPos);
+            float star = smoothstep(size * perspective, 0.0, dist);
+            
+            // Star color
+            vec3 starCol = mix(vec3(0.8, 0.9, 1.0), vec3(1.0, 0.8, 0.6), hash(vec3(fi, fl, 4.0)));
+            
+            col += starCol * star * brightness * (1.0 - z);
+        }
+    }
+    
+    // Add slight nebula background
+    float nebula = sin(uv.x * 3.0 + t * 0.1) * sin(uv.y * 2.0 - t * 0.15) * 0.5 + 0.5;
+    col += vec3(0.1, 0.0, 0.2) * nebula * 0.2;
+    
+    fragColor = vec4(col, 1.0);
+}`;
+
+// Fragment shader: Fractal (Mandelbrot zoom)
+const fsFractal = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform float uTime;
+uniform vec2 uResolution;
+
+vec3 hsv2rgb(vec3 c) {
+    vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+    return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+void main() {
+    vec2 uv = vUv * 2.0 - 1.0;
+    uv.x *= uResolution.x / uResolution.y;
+    
+    float t = uTime;
+    
+    // Zoom into an interesting area
+    float zoom = pow(1.5, mod(t * 0.5, 20.0));
+    vec2 center = vec2(-0.745, 0.186);
+    
+    vec2 c = center + uv / zoom;
+    vec2 z = vec2(0.0);
+    
+    float iter = 0.0;
+    const float maxIter = 256.0;
+    
+    for (float i = 0.0; i < maxIter; i++) {
+        z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+        if (dot(z, z) > 4.0) {
+            iter = i;
+            break;
+        }
+        iter = i;
+    }
+    
+    vec3 col;
+    if (iter >= maxIter - 1.0) {
+        col = vec3(0.0);
+    } else {
+        // Smooth coloring
+        float smoothIter = iter - log2(log2(dot(z, z)));
+        float hue = fract(smoothIter * 0.02 + t * 0.05);
+        col = hsv2rgb(vec3(hue, 0.8, 0.9));
+    }
+    
+    fragColor = vec4(col, 1.0);
+}`;
+
+// Fragment shader: Final scene - combination
+const fsFinalScene = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform float uTime;
+uniform vec2 uResolution;
+
+float sdBox(vec3 p, vec3 b) {
+    vec3 q = abs(p) - b;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+}
+
+mat2 rot2D(float a) {
+    float c = cos(a), s = sin(a);
+    return mat2(c, -s, s, c);
+}
+
+float scene(vec3 p) {
+    float t = uTime;
+    
+    // Rotate space
+    p.xz = rot2D(t * 0.3) * p.xz;
+    p.xy = rot2D(t * 0.2) * p.xy;
+    
+    // Infinite repetition
+    vec3 q = mod(p + 2.0, 4.0) - 2.0;
+    
+    // Morphing between shapes
+    float morph = sin(t * 0.5) * 0.5 + 0.5;
+    float sphere = length(q) - 0.8;
+    float box = sdBox(q, vec3(0.6));
+    
+    return mix(sphere, box, morph);
+}
+
+vec3 getNormal(vec3 p) {
+    vec2 e = vec2(0.001, 0.0);
+    return normalize(vec3(
+        scene(p + e.xyy) - scene(p - e.xyy),
+        scene(p + e.yxy) - scene(p - e.yxy),
+        scene(p + e.yyx) - scene(p - e.yyx)
+    ));
+}
+
+void main() {
+    vec2 uv = vUv * 2.0 - 1.0;
+    uv.x *= uResolution.x / uResolution.y;
+    
+    float t = uTime;
+    
+    vec3 ro = vec3(0.0, 0.0, -5.0 + sin(t * 0.3) * 2.0);
+    vec3 rd = normalize(vec3(uv, 1.5));
+    
+    float d = 0.0;
+    vec3 p;
+    bool hit = false;
+    
+    for (int i = 0; i < 100; i++) {
+        p = ro + rd * d;
+        float dist = scene(p);
+        if (dist < 0.001) {
+            hit = true;
+            break;
+        }
+        d += dist * 0.5;
+        if (d > 100.0) break;
+    }
+    
+    vec3 col = vec3(0.0);
+    
+    if (hit) {
+        vec3 n = getNormal(p);
+        vec3 lightDir = normalize(vec3(1.0, 1.0, -1.0));
+        
+        float diff = max(dot(n, lightDir), 0.0);
+        float spec = pow(max(dot(reflect(-lightDir, n), -rd), 0.0), 32.0);
+        float fresnel = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
+        
+        // Color based on position
+        vec3 baseCol = 0.5 + 0.5 * sin(p * 0.5 + vec3(0.0, 2.0, 4.0) + t);
+        
+        col = baseCol * diff * 0.7;
+        col += vec3(1.0, 0.9, 0.8) * spec;
+        col += vec3(0.3, 0.5, 1.0) * fresnel * 0.5;
+        
+        // Fog
+        col = mix(col, vec3(0.0, 0.05, 0.1), 1.0 - exp(-d * 0.05));
+    }
+    
+    // Background
+    col += vec3(0.05, 0.1, 0.2) * (1.0 - length(uv) * 0.3);
+    
+    // Vignette
+    col *= 1.0 - length(uv - vec2(0.0)) * 0.3;
+    
+    fragColor = vec4(col, 1.0);
+}`;
+
+// All scenes
+const scenes = [
+    { name: "Copper Bars", fs: fsCopperBars, duration: 10 },
+    { name: "Plasma", fs: fsPlasma, duration: 10 },
+    { name: "Starfield", fs: fsStarfield, duration: 10 },
+    { name: "Tunnel", fs: fsTunnel, duration: 10 },
+    { name: "Metaballs", fs: fsMetaballs, duration: 10 },
+    { name: "Vector Balls", fs: fsVectorBalls, duration: 12 },
+    { name: "Fractal Zoom", fs: fsFractal, duration: 12 },
+    { name: "Infinite Forms", fs: fsFinalScene, duration: 15 }
+];
+
+let programs = [];
+let currentProgram;
+let quadVAO;
+
+// ============================================================================
+// WEBGL UTILITIES
+// ============================================================================
+
+function createShader(type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        console.error('Shader error:', gl.getShaderInfoLog(shader));
+        return null;
+    }
+    return shader;
+}
+
+function createProgram(vsSource, fsSource) {
+    const vs = createShader(gl.VERTEX_SHADER, vsSource);
+    const fs = createShader(gl.FRAGMENT_SHADER, fsSource);
+    
+    const program = gl.createProgram();
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error('Program error:', gl.getProgramInfoLog(program));
+        return null;
+    }
+    
+    program.uniforms = {
+        uTime: gl.getUniformLocation(program, 'uTime'),
+        uResolution: gl.getUniformLocation(program, 'uResolution')
+    };
+    
+    return program;
+}
+
+function initGL() {
+    // Create all shader programs
+    for (const scene of scenes) {
+        programs.push(createProgram(vsQuad, scene.fs));
+    }
+    
+    // Create fullscreen quad
+    const quadVertices = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
+    const quadBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, quadVertices, gl.STATIC_DRAW);
+    
+    quadVAO = gl.createVertexArray();
+    gl.bindVertexArray(quadVAO);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    
+    currentProgram = programs[0];
+}
+
+// ============================================================================
+// AUDIO SYNTHESIS (Procedural chiptune-style music)
+// ============================================================================
+
+function initAudio() {
+    audioCtx = new AudioContext();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    audioData = new Uint8Array(analyser.frequencyBinCount);
+    
+    // Create a more complex synthesized music track
+    const masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.15;
+    masterGain.connect(analyser);
+    analyser.connect(audioCtx.destination);
+    
+    // Bass line
+    playBassLine(masterGain);
+    
+    // Lead melody
+    playLead(masterGain);
+    
+    // Arpeggios
+    playArpeggio(masterGain);
+    
+    // Drums
+    playDrums(masterGain);
+}
+
+function playNote(freq, startTime, duration, gain, type = 'square') {
+    const osc = audioCtx.createOscillator();
+    const env = audioCtx.createGain();
+    
+    osc.type = type;
+    osc.frequency.value = freq;
+    
+    env.gain.setValueAtTime(0, startTime);
+    env.gain.linearRampToValueAtTime(0.3, startTime + 0.01);
+    env.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+    
+    osc.connect(env);
+    env.connect(gain);
+    
+    osc.start(startTime);
+    osc.stop(startTime + duration + 0.1);
+}
+
+function playBassLine(masterGain) {
+    const bassNotes = [55, 55, 73.42, 73.42, 82.41, 82.41, 73.42, 73.42]; // A1, D2, E2
+    const noteLength = 0.5;
+    const loopLength = bassNotes.length * noteLength;
+    
+    function scheduleLoop(startTime) {
+        bassNotes.forEach((note, i) => {
+            playNote(note, startTime + i * noteLength, noteLength * 0.8, masterGain, 'sawtooth');
+        });
+        setTimeout(() => scheduleLoop(startTime + loopLength), (loopLength - 0.5) * 1000);
+    }
+    
+    scheduleLoop(audioCtx.currentTime);
+}
+
+function playLead(masterGain) {
+    const melody = [
+        440, 0, 523.25, 0, 587.33, 523.25, 440, 0,
+        392, 0, 440, 0, 523.25, 0, 392, 0
+    ];
+    const noteLength = 0.25;
+    const loopLength = melody.length * noteLength;
+    
+    function scheduleLoop(startTime) {
+        melody.forEach((note, i) => {
+            if (note > 0) {
+                playNote(note, startTime + i * noteLength, noteLength * 0.7, masterGain, 'square');
+            }
+        });
+        setTimeout(() => scheduleLoop(startTime + loopLength), (loopLength - 0.5) * 1000);
+    }
+    
+    scheduleLoop(audioCtx.currentTime + 4);
+}
+
+function playArpeggio(masterGain) {
+    const arpNotes = [220, 277.18, 329.63, 440, 329.63, 277.18];
+    const noteLength = 0.125;
+    const loopLength = arpNotes.length * noteLength;
+    
+    function scheduleLoop(startTime) {
+        arpNotes.forEach((note, i) => {
+            playNote(note, startTime + i * noteLength, noteLength * 0.5, masterGain, 'triangle');
+        });
+        setTimeout(() => scheduleLoop(startTime + loopLength), (loopLength - 0.1) * 1000);
+    }
+    
+    scheduleLoop(audioCtx.currentTime + 2);
+}
+
+function playDrums(masterGain) {
+    function kick(time) {
+        const osc = audioCtx.createOscillator();
+        const env = audioCtx.createGain();
+        osc.frequency.setValueAtTime(150, time);
+        osc.frequency.exponentialRampToValueAtTime(30, time + 0.1);
+        env.gain.setValueAtTime(1, time);
+        env.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
+        osc.connect(env);
+        env.connect(masterGain);
+        osc.start(time);
+        osc.stop(time + 0.2);
+    }
+    
+    function hihat(time) {
+        const bufferSize = audioCtx.sampleRate * 0.05;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = buffer;
+        const env = audioCtx.createGain();
+        env.gain.setValueAtTime(0.3, time);
+        env.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.value = 8000;
+        noise.connect(filter);
+        filter.connect(env);
+        env.connect(masterGain);
+        noise.start(time);
+    }
+    
+    const beatLength = 0.25;
+    const pattern = [1, 0, 2, 0, 1, 2, 0, 2]; // 1 = kick, 2 = hihat
+    const loopLength = pattern.length * beatLength;
+    
+    function scheduleLoop(startTime) {
+        pattern.forEach((hit, i) => {
+            const time = startTime + i * beatLength;
+            if (hit === 1) kick(time);
+            if (hit === 2) hihat(time);
+        });
+        setTimeout(() => scheduleLoop(startTime + loopLength), (loopLength - 0.2) * 1000);
+    }
+    
+    scheduleLoop(audioCtx.currentTime);
+}
+
+// ============================================================================
+// OVERLAY EFFECTS (2D Canvas)
+// ============================================================================
+
+function drawOverlay(time) {
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    
+    // Scanlines
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+    for (let y = 0; y < overlay.height; y += 4) {
+        ctx.fillRect(0, y, overlay.width, 2);
+    }
+    
+    // CRT vignette
+    const gradient = ctx.createRadialGradient(
+        overlay.width / 2, overlay.height / 2, 0,
+        overlay.width / 2, overlay.height / 2, overlay.width * 0.7
+    );
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, overlay.width, overlay.height);
+    
+    // Scene title (fades in/out during transitions)
+    const sceneTime = time % scenes[currentScene].duration;
+    const fadeIn = Math.min(sceneTime / 1, 1);
+    const fadeOut = Math.min((scenes[currentScene].duration - sceneTime) / 1, 1);
+    const alpha = Math.min(fadeIn, fadeOut);
+    
+    if (sceneTime < 2) {
+        ctx.font = 'bold 36px "Courier New"';
+        ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.8})`;
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#0ff';
+        ctx.shadowBlur = 20;
+        ctx.fillText(scenes[currentScene].name.toUpperCase(), overlay.width / 2, 80);
+        ctx.shadowBlur = 0;
+    }
+}
+
+// ============================================================================
+// SCROLLER
+// ============================================================================
+
+function updateScroller(time) {
+    scrollPos = (time * 150) % (scrollText.length * 30 + window.innerWidth);
+    
+    // Sine wave on scroll text
+    let html = '';
+    const visibleText = scrollText + scrollText.substring(0, 50);
+    
+    for (let i = 0; i < visibleText.length; i++) {
+        const x = i * 30 - scrollPos;
+        if (x > -50 && x < window.innerWidth + 50) {
+            const y = Math.sin((x + time * 200) * 0.01) * 20;
+            const hue = (i * 5 + time * 50) % 360;
+            html += `<span style="position:absolute;left:${x}px;top:${y}px;color:hsl(${hue},100%,60%)">${visibleText[i]}</span>`;
+        }
+    }
+    
+    scrollerDiv.innerHTML = html;
+}
+
+// ============================================================================
+// MAIN LOOP
+// ============================================================================
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    overlay.width = window.innerWidth;
+    overlay.height = window.innerHeight;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+}
+
+function render(timestamp) {
+    const time = (timestamp - startTime) / 1000;
+    
+    // Calculate current scene based on time
+    let totalTime = 0;
+    for (let i = 0; i < scenes.length; i++) {
+        totalTime += scenes[i].duration;
+        if (time % totalTime < scenes[i].duration || i === scenes.length - 1) {
+            if (currentScene !== i) {
+                currentScene = i;
+            }
+            break;
+        }
+        totalTime -= scenes[i].duration;
+    }
+    
+    // Recalculate scene from cumulative time
+    let accumulated = 0;
+    for (let i = 0; i < scenes.length; i++) {
+        accumulated += scenes[i].duration;
+        if (time < accumulated) {
+            currentScene = i;
+            break;
+        }
+        if (i === scenes.length - 1) {
+            // Loop back
+            currentScene = Math.floor((time % accumulated) / scenes[0].duration) % scenes.length;
+        }
+    }
+    
+    currentProgram = programs[currentScene];
+    
+    // WebGL rendering
+    gl.useProgram(currentProgram);
+    gl.uniform1f(currentProgram.uniforms.uTime, time);
+    gl.uniform2f(currentProgram.uniforms.uResolution, canvas.width, canvas.height);
+    
+    gl.bindVertexArray(quadVAO);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    
+    // 2D overlay effects
+    drawOverlay(time);
+    
+    // Update scroller
+    updateScroller(time);
+    
+    // FPS counter
+    frameCount++;
+    if (timestamp - lastFrameTime >= 1000) {
+        fpsSpan.textContent = frameCount;
+        frameCount = 0;
+        lastFrameTime = timestamp;
+    }
+    
+    requestAnimationFrame(render);
+}
+
+function nextScene() {
+    currentScene = (currentScene + 1) % scenes.length;
+}
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+function start() {
+    startScreen.style.display = 'none';
+    startTime = performance.now();
+    lastFrameTime = startTime;
+    
+    resize();
+    window.addEventListener('resize', resize);
+    
+    initGL();
+    initAudio();
+    
+    // Keyboard controls
+    document.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') {
+            nextScene();
+        }
+    });
+    
+    requestAnimationFrame(render);
+}
+
+startScreen.addEventListener('click', start);
+
+    </script>
+</body>
+</html>
